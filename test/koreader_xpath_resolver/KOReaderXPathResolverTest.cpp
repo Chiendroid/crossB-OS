@@ -84,10 +84,10 @@ TEST(KOReaderXPathResolver, CountsVisibleCdataAndIgnoresHiddenCdata) {
             "/body/DocFragment[1]/body/p[1]/text()[2].1");
 }
 
-TEST(KOReaderXPathResolver, PreservesDirectBodyFallback) {
+TEST(KOReaderXPathResolver, ResolvesDirectBodyTextNode) {
   EXPECT_EQ(
       ChapterXPathResolver::findXPathForVisibleTextOffset(epubWith("<html><body>Direct text</body></html>"), 0, 0),
-      "/body/DocFragment[1]/body");
+      "/body/DocFragment[1]/body/text()[1].0");
 }
 
 TEST(KOReaderXPathResolver, ReturnsEmptyForUnusableContent) {
@@ -139,7 +139,7 @@ TEST(KOReaderXPathResolver, SplitEndUsesLastContentCharacter) {
         << offset;
   }
   EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f, 2),
-            "/body/DocFragment[1]/body/section[1]/p[2]/text()[1].4");
+            "/body/DocFragment[1]/body/section[1]/p[2]/text()[1].5");
   EXPECT_TRUE(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 100, 2).empty());
 }
 
@@ -153,4 +153,102 @@ TEST(KOReaderXPathResolver, SplitDirectChildrenAndNestedInlineText) {
   EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(
                 epubWith("<html><body>\n<p><em>Hello</em></p></body></html>"), 0, 0, 1),
             "/body/DocFragment[1]/body/p[1]/em[1]/text()[1].0");
+}
+
+TEST(KOReaderXPathResolver, ResolvesDivSpanTextAfterEmptyParagraph) {
+  const auto epub = epubWith("<html><body><p id='anchor'/><div><span>Alpha</span> tail</div>End</body></html>");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 2),
+            "/body/DocFragment[1]/body/div[1]/span[1]/text()[1].2");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 6),
+            "/body/DocFragment[1]/body/div[1]/text()[1].1");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 11), "/body/DocFragment[1]/body/text()[1].1");
+}
+
+TEST(KOReaderXPathResolver, ResumesParentTextAfterNestedElements) {
+  const auto epub = epubWith("<html><body>One<div>Two<span>Three</span>Four</div>Five</body></html>");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 12),
+            "/body/DocFragment[1]/body/div[1]/text()[2].1");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 16), "/body/DocFragment[1]/body/text()[2].1");
+}
+
+TEST(KOReaderXPathResolver, SkipsWhitespaceAnchorsWithoutRenumberingNodes) {
+  const auto epub = epubWith("<html><body> \n<div> \t<span>Alpha</span> \n<em/>Bravo</div> \n</body></html>");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 0),
+            "/body/DocFragment[1]/body/div[1]/span[1]/text()[1].0");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 9),
+            "/body/DocFragment[1]/body/div[1]/text()[3].0");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/div[1]/text()[3].5");
+}
+
+TEST(KOReaderXPathResolver, TrimsProgressEndpointAcrossStreamChunkSizes) {
+  const auto epub = epubWith("<html><body><div>Alpha\xC3\xA9 \t\n</div> \n</body></html>");
+  for (const size_t chunk : {1, 2, 7, 1024}) {
+    SCOPED_TRACE(chunk);
+    epub->streamChunkSize = chunk;
+    EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f),
+              "/body/DocFragment[1]/body/div[1]/text()[1].6");
+  }
+}
+
+TEST(KOReaderXPathResolver, PreservesLongTextNodeAcrossChunkAndUtf8Boundaries) {
+  const auto epub =
+      epubWith("<html><body><div>" + std::string(1007, 'a') + "\xC3\xA9<span>X</span>Tail</div></body></html>");
+  for (const size_t chunk : {1, 7, 1024}) {
+    SCOPED_TRACE(chunk);
+    epub->streamChunkSize = chunk;
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 1007),
+              "/body/DocFragment[1]/body/div[1]/text()[1].1007");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 1010),
+              "/body/DocFragment[1]/body/div[1]/text()[2].1");
+  }
+}
+
+TEST(KOReaderXPathResolver, WhitespaceOnlyChapterDoesNotInventAnchor) {
+  const auto epub = epubWith("<html><body> \n<div> \t</div></body></html>");
+  EXPECT_TRUE(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 0).empty());
+  EXPECT_TRUE(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f).empty());
+  EXPECT_TRUE(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 0, 1).empty());
+}
+
+TEST(KOReaderXPathResolver, PreservesNonAsciiSpacesAsContent) {
+  const auto epub = epubWith("<html><body><div>\xC2\xA0</div></body></html>");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 0),
+            "/body/DocFragment[1]/body/div[1]/text()[1].0");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/div[1]/text()[1].1");
+}
+
+TEST(KOReaderXPathResolver, SplitFallbackSkipsWhitespaceOnlyMappedChildren) {
+  const auto epub = epubWith("<html><body><section><div>Alpha \t</div><div> \n</div> </section></body></html>");
+  for (const size_t chunk : {1, 7, 1024}) {
+    SCOPED_TRACE(chunk);
+    epub->streamChunkSize = chunk;
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 9, 2),
+              "/body/DocFragment[1]/body/section[1]/div[1]/text()[1].4");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f, 2),
+              "/body/DocFragment[1]/body/section[1]/div[1]/text()[1].5");
+  }
+}
+
+TEST(KOReaderXPathResolver, IgnoresNonVisibleTagsOutsideParagraphs) {
+  const auto epub = epubWith("<html><body><div>One<STYLE>hidden</STYLE><rt>hidden</rt>Two</div></body></html>");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 4),
+            "/body/DocFragment[1]/body/div[1]/text()[2].1");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/div[1]/text()[2].3");
+}
+
+TEST(KOReaderXPathResolver, WhitespaceTargetsAreIndependentOfStreamChunkSize) {
+  const auto epub = epubWith("<html><body><div>  Alpha   </div><p>Bravo</p></body></html>");
+  const auto internal = epubWith("<html><body><div>Alpha   Bravo</div></body></html>");
+  for (const size_t chunk : {1, 2, 7, 1024}) {
+    SCOPED_TRACE(chunk);
+    epub->streamChunkSize = chunk;
+    internal->streamChunkSize = chunk;
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 0),
+              "/body/DocFragment[1]/body/div[1]/text()[1].2");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 8),
+              "/body/DocFragment[1]/body/p[1]/text()[1].0");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(internal, 0, 6),
+              "/body/DocFragment[1]/body/div[1]/text()[1].8");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 0.5f), "/body/DocFragment[1]/body/p[1]/text()[1].0");
+  }
 }

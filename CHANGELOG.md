@@ -26,6 +26,8 @@
 
 ### Fixed
 
+- Sync accurate KOReader positions for bare body text and nested div/span content, skip whitespace-only anchors, and keep chapter-end progress in real text (CrossPoint #3923).
+
 - Complete missing translations in all 27 community languages, use concise UI labels, and support complete built-in language tables without increasing offset-table size.
 - Reduce SD-font cache allocations while preserving kerning and dictionary ligatures, including failed kerning loads (adapted from serialx, CrossPoint #3831 and #3838).
 - Resolve EPUB3 series refinements by collection ID even when interleaved or declared out of order, and refresh stale book/library metadata (series parser adapted from jadehawk, CrossPoint #3804).
