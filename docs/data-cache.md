@@ -30,6 +30,9 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 ├── wifi.json               # Saved Wi-Fi networks
 ├── opds.json               # Saved OPDS servers
 ├── koreader.json           # KOReader sync credentials
+├── sync_pending.bin        # Books changed since their last sync upload (with .bak)
+├── sync_state.bin          # Sync catch-ups, prepared folders and feed cursors for the current server account (with .bak)
+├── sync_ids.bin            # Document id -> book path for books being read, used by the progress pull
 ├── bookmarks/              # Bookmark files, one per book
 ├── clippings/              # EPUB clipping/highlight files, one per book
 ├── home_carousel_cache_<index>.bin # Lyra Carousel artwork cache for each book position
@@ -40,6 +43,7 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 │   ├── stats_v5.bin        # Version 5 per-book reading stats
 │   ├── reading_stats_off   # Present when stats tracking is disabled for this book
 │   ├── reader_settings.bin # Per-book reader settings, render mode, and auto-page-turn interval
+│   ├── sync.bin            # Cached sync document id and catch-up stamps (with .bak)
 │   ├── cover.bmp           # Book cover image, once generated
 │   ├── cover_absolute.bmp  # Four-tone image-mode cover (generated separately)
 │   ├── cover_crop_absolute.bmp # Cropped four-tone image-mode cover

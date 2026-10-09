@@ -524,6 +524,139 @@ struct ReaderSettingsBin {
 };
 ```
 
+## Sync files
+
+`sync_pending.bin`, `sync_state.bin` and each book's `sync.bin` share one
+crash-safe pattern (`src/sync/SyncFiles.cpp`). A change writes `<name>.tmp`,
+closes it, renames the current file to `<name>.bak`, then renames the temp file
+into place. When there is no current file (first write, or recovering from the
+backup) the temp file is renamed straight into place and `.bak` is kept. Every
+file ends with a little-endian `uint32` CRC32 (`uzlib_crc32`) of all bytes
+before it. A reader checks the CRC first. If the main file is missing but a
+CRC-valid `.tmp` exists (power lost between the two renames), that newest copy
+is renamed into place and used; otherwise it falls back to `.bak`. If nothing
+valid remains the file starts fresh (see below). Integers are little-endian.
+
+### `/.crosspoint/sync_pending.bin` (version 1)
+
+Books whose local state changed since their last successful upload.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| version | `uint8` | `1` |
+| entries | repeated | until the CRC |
+| entry.mask | `uint8` | `1` progress, `2` reading stats, `4` clippings |
+| entry.path | `uint16` length + bytes | absolute book path, at most 1024 bytes |
+| crc | `uint32` | |
+
+Entries are only added while a sync account exists, and stats/clippings bits
+only while their What to Sync toggle is on. An entry is removed when its mask is
+empty. The file is never deleted; an empty list is just the version byte. If it
+and its backup are both unreadable after a catch-up has completed, the catch-ups
+in `sync_state.bin` are reset so they run again.
+
+### `/.crosspoint/sync_state.bin` (version 2)
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| version | `uint8` | `1` |
+| baseUrl | `uint16` length + bytes | account this state belongs to |
+| username | `uint16` length + bytes | |
+| flags | `uint8` | bit 0 stats caught up, bit 1 clippings caught up |
+| statsCatchupId | `uint32` | non-zero while a stats catch-up is unfinished |
+| clippingsCatchupId | `uint32` | same for clippings |
+| nextStampId | `uint32` | next catch-up/walk id; random start, never reused |
+| scopes | repeated | version 2: prepared sync scopes, until the CRC |
+| scope.path | `uint16` length + bytes | folder, or `/` for the whole card; at most 255 bytes |
+| scope.flags | `uint8` | bit 0 prepared, bit 1 stats caught up, bit 2 clippings caught up |
+| scope.cursor | `uint32` | change feed cursor for this scope |
+| scope.lastSynced | `uint32` | stamp id of the last sync; the oldest is dropped beyond 32 scopes |
+| scope.walkId | `uint32` | non-zero while the scope's first walk is unfinished |
+| scope.statsCatchupId | `uint32` | unfinished stats catch-up for this scope |
+| scope.clippingsCatchupId | `uint32` | unfinished clippings catch-up for this scope |
+| crc | `uint32` | |
+
+Version 1 files (no scopes) are read and rewritten as version 2. A different
+base URL or username reads as a fresh state (catch-ups and first walks run
+again). Scopes are streamed one at a time, so RAM use does not grow with the
+list.
+
+### `/.crosspoint/sync_ids.bin` (version 1)
+
+Document id -> book path for books with saved progress, stats or clippings on
+this reader, read by the progress pull. XTC books and finished books are never
+recorded. Unlike the other sync files it is appended to, so each record carries
+its own CRC and there is no trailing file CRC; rewrites (rename, removal,
+compaction) still use the `.tmp` swap. A confirmed Document Matching change
+deletes it, together with `sync_parked.bin` and every scope's cursor, first walk
+and catch-ups in `sync_state.bin`.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| version | `uint8` | `1` |
+| method | `uint8` | `DocumentMatchMethod`; another method reads as an empty map |
+| generation | `uint32` | changes whenever the file is created anew, compacted, or rebuilt after a corrupt entry |
+| headerCrc | `uint32` | CRC32 of the 6 bytes above |
+| entry.id | 16 bytes | raw KOReader document MD5 |
+| entry.path | `uint8` length + bytes | absolute book path, at most 255 bytes |
+| entry.crc | `uint32` | CRC32 of the entry's id, length and path |
+
+A torn append only loses that entry: the next record finds the partial tail and
+rewrites the file before appending. If the main file is missing after a crash
+between the two renames, a `.tmp` with a valid header is promoted, else the
+`.bak`. Copies of a file in binary mode share an id, so an id can map to several
+paths.
+
+### `/.crosspoint/sync_parked.bin` (slot version 1)
+
+Remote positions from the change feed that the pull could not apply: books not
+on this reader (or not in `sync_ids.bin`), books never opened here, failed
+applies, and Ask on conflicts' Skip book. At most 32 fixed 384-byte slots; a
+change sharing a hash with a parked one replaces it in place, else the first
+empty slot is used, else the oldest (by remote timestamp) is overwritten. A slot
+whose CRC does not match (torn write, or zeroed by a removal) is empty. There is
+no file header or file CRC. Removing the last valid entry deletes the file, so
+opening a book with nothing kept stops at the missing file.
+
+| Offset | Field | Type | Notes |
+| --- | --- | --- | --- |
+| 0 | version | `uint8` | `1`; `0` = empty slot |
+| 1 | hashCount | `uint8` | 1-4 |
+| 2 | flags | `uint8` | bit 0: rich position present |
+| 3 | reserved | `uint8` | |
+| 4 | hashes | 4 x 16 bytes | raw document MD5s: canonical first, then aliases |
+| 68 | percentage | `float` | |
+| 72 | timestamp | `int64` | remote write time |
+| 80 | pctQ | `uint32` | rich position |
+| 84 | spine, page, pages, paragraph | 4 x `uint16` | rich position; paragraph 0 = none |
+| 92 | device | 32 bytes | remote device name, NUL-padded |
+| 124 | xpath length | `uint16` | at most 252; longer positions are not parked |
+| 126 | xpath | 252 bytes | |
+| 380 | crc | `uint32` | CRC32 of bytes 0-379 |
+
+### `<book cache>/sync.bin` (version 2)
+
+In the book's `epub_<hash>/` or `xtc_<hash>/` folder; only written when that
+folder already exists.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| version | `uint8` | `1` |
+| hasId | `uint8` | `1` when `id` is valid |
+| method | `uint8` | `DocumentMatchMethod` the id was computed with |
+| id | 16 bytes | raw KOReader document MD5 |
+| fileSize | `uint32` | book size when `id` was computed; a different size recomputes it |
+| statsStamp | `uint32` | stats catch-up id that last sent this book |
+| clippingsStamp | `uint32` | clippings catch-up id that last sent this book |
+| walkStamp | `uint32` | version 2: first-walk id that finished this book |
+| idsGeneration | `uint32` | version 2: `sync_ids.bin` generation the book was recorded in; 0 = not recorded |
+| crc | `uint32` | |
+
+Version 1 records are read with both new fields 0.
+
+No EPUB cache format version changes; deleting `sync.bin` only means the id is
+recomputed and an unfinished catch-up resends that book.
+
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
 ### Versions 1-4

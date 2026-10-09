@@ -41,6 +41,9 @@
 #include "components/icons/listIcons.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncIds.h"
+#include "sync/SyncPending.h"
 #include "util/BookMoveUtils.h"
 
 namespace fui = freeink::ui;
@@ -491,6 +494,9 @@ void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const st
       LOG_ERR("FileBrowser", "Failed to delete file: %s", fullPath.c_str());
       return;
     }
+    // A deleted book has nothing left to upload or pull.
+    SyncPending::removePath(fullPath);
+    BookSyncFile::onDeleted(fullPath);
     ImageFolderIndex::invalidateForPath(fullPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(fullPath.c_str());
 
@@ -539,8 +545,11 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
     ImageFolderIndex::invalidateForPath(dirPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(dirPath.c_str());
 
+    // One id-map rewrite for the whole folder, not one per book.
+    SyncIds::removeUnder(dirPath);
     for (const auto& metadataPath : metadataPaths) {
       BookActions::clearFileMetadata(metadataPath);
+      SyncPending::removePath(metadataPath);
     }
 
     const std::string favoritePrefix = dirPath + "/";

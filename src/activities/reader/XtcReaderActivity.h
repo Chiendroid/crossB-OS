@@ -22,6 +22,7 @@
 #include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
+#include "sync/SyncPending.h"
 
 class XtcReaderActivity final : public Activity {
 #ifdef SIMULATOR
@@ -60,6 +61,8 @@ class XtcReaderActivity final : public Activity {
   bool longPressBackHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;
+  // Records this book's stats on the sync pending-push list once per session.
+  SyncPending::SessionMarker pendingSync;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
 

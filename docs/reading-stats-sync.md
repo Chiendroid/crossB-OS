@@ -88,13 +88,13 @@ Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own
 
 ## Server Sync Settings
 
-Server sync lives in **Settings > System > Sync Server**. It works with
+Server sync is set up in **Settings > System > Sync Server**. It works with
 CrossPoint Sync (the default, `https://sync.crosspointreader.com`, or a
-self-hosted copy) and with KOReader-compatible servers. The screen has three
-groups:
+self-hosted copy) and with KOReader-compatible servers. The screen holds
+configuration only; the sync actions themselves are under **File Transfer >
+Sync Server** (see [Ways to Sync](#ways-to-sync)). The screen has three groups:
 
-- **Account**: username, password, server URL, Sign Up, Authenticate, and
-  **Sync All Books**.
+- **Account**: username, password, server URL, Sign Up, and Authenticate.
 - **What to Sync**: **Reading Stats** and **Clippings**.
 - **Sync Options**: Sync Behavior, Document Matching, and Send Metadata.
 
@@ -114,18 +114,50 @@ Changing the server URL clears what was learned about the old server.
 
 ## Ways to Sync
 
-Every sync action sends the same data: reading progress (EPUB only), plus reading
-stats and clippings when they are on under **What to Sync**. Only the scope differs:
+**Sync Book**, **Sync Folder**, and **Sync Books** send the same data: reading
+progress (EPUB only), plus reading stats and clippings when they are on under
+**What to Sync**. Only the scope differs:
 
 | Action | Where | Books |
 | --- | --- | --- |
 | **Sync Book** | Reader menu, frontlight panel, or a book's context menu in Library / File Browser | One book |
 | **Sync Folder** | Long-press a folder in File Browser | That folder and its subfolders |
-| **Sync All Books** | **Settings > System > Sync Server**, or the Reading Stats **This Device** page (Confirm on button devices, the upload icon on touch) | Every book in the Library index |
+| **Sync Books** | **File Transfer > Sync Server** | Every book on the SD card |
 
-Sync All Books started from Reading Stats inside a book reopens that book
-afterwards (EPUB books reopen Reading Stats too), the same way **Sync Book**
-returns to the reader.
+Two more actions upload a single kind of data and never read or change reading
+positions:
+
+| Action | Where | Sends |
+| --- | --- | --- |
+| **Sync Reading Stats** | **File Transfer > Sync Server**, or the Reading Stats **This Device** page (Confirm on button devices, the upload icon on touch) | Overall stats, plus the saved stats of every book on the SD card, several books per request |
+| **Sync Clippings** | **File Transfer > Sync Server** | The clippings of every book that has any |
+
+These two appear only when their **What to Sync** toggle is on and the server is
+known to accept stats and clippings (the default server always is; a custom
+server after **Authenticate** or a first upload).
+
+They send only what changed. CrossInk keeps a short list of books whose
+position, stats or clippings changed since they were last uploaded, and these
+actions upload just those books. The first time each runs (and again after its
+**What to Sync** toggle is turned back on, or after switching server or
+account) it runs a one-time catch-up instead, because changes made before the
+list existed were never recorded:
+
+- **Sync Reading Stats** catch-up: "Scanning your SD card for reading stats...".
+  It checks each book on the card for a stats file (no book is opened) and
+  sends every book's stats, several books per request.
+- **Sync Clippings** catch-up: "Checking clippings...". It only reads the
+  clippings folder and sends each book's clippings.
+
+A catch-up re-sends everything of its type, so with hundreds of annotated books
+turning Clippings back on means one longer sync. Exit stops it safely; the next
+run continues where it stopped. A finished **Sync Books** also counts as both
+catch-ups. Without an account, **Sync Books**
+asks you to set up an account in **Settings > System > Sync Server** first.
+
+Syncing from Reading Stats inside a book reopens that book afterwards (EPUB
+books reopen Reading Stats too), the same way **Sync Book** returns to the
+reader.
 
 Overall stats are sent once per action. XTC books have no KOReader position, so
 they sync reading stats only; their **Sync Book** runs in place instead of
@@ -136,14 +168,56 @@ Every result screen lists **All-time Stats**, **Reading Stats**, and **Clippings
 with the same wording: **Done**, a count, **OFF** when that data is turned off,
 **Not supported** on a progress-only server, or the error.
 
-## Sync All Books
+## Sync Books
 
-**Sync All Books** walks the existing Library index. Refresh Library first to
-include newly added books; if the index is unavailable, only overall stats are
-sent and the screen asks you to refresh Library. Each EPUB follows the same rules
-as **Sync Folder** below (Smart or Ask, Skip book on failure, Back to stop).
+**Sync Books** walks the SD card directly, so it does not depend on the
+Library: books copied since the last Library refresh, and readers who only use
+the File Browser, are included. Each EPUB follows the same rules
+as **Sync Folder** below (Smart or Ask, failures listed at the end, Back to stop).
 Missing files, unreadable book stats, and books with tracking disabled are
 skipped. Nearby readers' totals are never uploaded as your own.
+
+### Incremental syncs (CrossPoint Sync)
+
+On a CrossPoint Sync server with the progress change feed, **Sync Books** and
+**Sync Folder** only walk their books once:
+
+- **First sync** of the card or a folder: "Syncing books on your SD card..."
+  (or "Syncing books in this folder...") with a progress bar; the books are
+  counted by name first, without opening them. Every book is synced as above. The
+  walk is resumable: Exit stops it, and the next run skips books it finished.
+  If a book failed, the next run resumes the walk once to retry it, then
+  switches to incremental syncs either way. Books with no saved stats or clippings are
+  not hashed for them.
+- **Later syncs**: "Checking for updates..." reads only the positions changed
+  on the server since the last sync (10 per request) and applies those to the
+  matching books, with the same Smart or Ask rules. Then "Uploading changes..."
+  sends only books whose position, stats or clippings changed on this reader.
+  No per-book request is made for unchanged books. Positions are sent up to 8 per
+  request (stats were already batched); a server without the batch route gets
+  one request per book instead.
+- A folder inside an already-synced scope (for example any folder after a
+  completed **Sync Books**) starts incremental right away.
+- A remote position for a book this reader does not have, a book never opened
+  here, a failed apply, a conflict waiting for its choice, or **Skip book** in
+  Ask on conflicts is kept on the
+  reader (up to 32, oldest dropped first). Before that book's progress is
+  uploaded, it is compared with the kept position (Smart or Ask, as above);
+  any sync that reconciles the book, including **Sync Book**, drops it.
+  Switching server or account clears them.
+- Opening a book with a kept position, if it is inside a synced folder (or the
+  card after a completed **Sync Books**), asks "Continue from 45% (Phone)?"
+  in both Smart and Ask on conflicts, without using the network. **Continue**
+  moves to that position; **Stay here** (or Back) keeps this reader's position
+  and uploads it with the next sync. When this reader is already at or past
+  the kept position, nothing is asked: the kept position is dropped, and a
+  position further along is uploaded with the next sync. Books outside synced
+  folders are never asked about. Opening a book costs nothing extra when no
+  position is kept; otherwise its id comes from the book's cache, and binary
+  matching reads the book only when that copy is missing or the file changed.
+
+Stock KOSync servers, and CrossPoint Sync servers without the feed, keep the
+per-book walk every time.
 
 This action runs **only** after manual confirmation. There are no uploads on
 book close, sleep, or a timer. It does not enable device-wide tracking.
@@ -152,6 +226,11 @@ even if tracking for an individual book is now disabled.
 
 Book matching uses the existing Filename/Binary setting. Keep it consistent across
 readers; changing it or renaming a file can create another server record.
+Changing **Document Matching** (in Sync Options or the web settings page) asks
+first, because every book gets a new id: on confirm the reader forgets its
+book id map, kept positions, and each synced folder's progress, so the next
+**Sync Books** or **Sync Folder** checks every book again. Progress already on
+the server stays under the old ids until you merge the books in the web app.
 **Send Metadata** controls title, author, and filename sharing as it does for
 normal progress uploads.
 
@@ -192,14 +271,26 @@ In **File Browser**, long-press a folder (hold Confirm on button devices), selec
 folder and its subfolders. It reads the SD folders directly; no Library refresh is
 needed. XTC books in the folder sync their reading stats only. The global sync
 method applies to every EPUB: **Smart** keeps the further
-progress, uploading local progress or applying remote progress as needed; **Ask**
-shows a choice for each book, with its filename at the top.
+progress, uploading local progress or applying remote progress as needed; **Ask
+on conflicts** asks only when the server's position differs from the reader's,
+showing the book's filename at the top. A book the server has no position for
+uploads without asking, and matching positions count as already synced.
+
+The whole run stays on one screen: the book being synced, a progress bar (for
+the first sync of a folder and for "Uploading changes..."), and the running
+counts, redrawn with fast refreshes instead of a screen per book. Ask on
+conflicts does not stop the run: each conflicting book's server position is
+kept ("Conflicts to review: 2"), its stats and clippings still upload, and the
+choices are shown one after another once every book is done. Exit from a choice
+ends the sync; the remaining positions stay kept and are compared again at the
+next sync or offered when the book is opened.
 
 EPUBs need saved progress; missing EPUB metadata is rebuilt before syncing.
 Unread books and old or invalid progress without a usable page count skip position sync;
 their saved stats and clippings are still considered when enabled.
-Metadata or mapping failures show an error after saved stats and clippings have
-been attempted. Choose **Skip book** to continue, or Back to stop. Hidden entries and
+A book that fails (a metadata, mapping, or network error) does not stop the run:
+its saved stats and clippings are still attempted, and the sync moves to the next
+book. Hidden entries and
 files other than EPUB and XTC are excluded. The folder's
 name does not mark books as finished, and this cannot reconstruct deleted history.
 Traversal is bounded to 16 folder levels and 1024-byte paths; exceeding a limit or
@@ -210,10 +301,14 @@ Overall stats are attempted once after confirmation and Wi-Fi connection, even i
 the folder is empty or every book skips or fails position sync. A failure does not
 block per-book uploads. The result shows overall stats, book stats, and clippings
 separately; a successful position may also appear in the failed-book count if an
-extra upload failed. Missing data and disabled tracking show no upload rather
+extra upload failed. The final screen lists up to five failed books under
+**Failed books**, each with its title (or file name) and what failed and why,
+for example "Progress sync failed: Sync server returned HTTP 500"; any more
+show as "+3 more". **Sync Book** on a single book shows the same heading, the
+title, and a Progress, Reading Stats and Clippings result. Missing data and disabled tracking show no upload rather
 than replacing server data with zeros. **Send Metadata** controls title,
 author, and filename sharing just as it does for normal progress uploads.
-Press Back to stop, including from a per-book prompt; a book with many clippings
+Press Back to stop, including from a conflict choice; a book with many clippings
 can take longer. Completed uploads and downloads remain applied if a later book
 fails or you cancel.
 

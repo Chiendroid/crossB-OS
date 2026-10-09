@@ -1,5 +1,7 @@
 #include "SettingsList.h"
 
+#include "sync/DocumentMatching.h"
+
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
@@ -309,11 +311,9 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::DynamicEnum(
         StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY},
         [] { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); },
-        [](uint8_t v) {
-          KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
-          KOREADER_STORE.saveToFile();
-        },
-        "koMatchMethod", StrId::STR_SYNC_SERVER));
+        // The web settings page warns before saving a change.
+        [](uint8_t v) { DocumentMatching::set(static_cast<DocumentMatchMethod>(v)); }, "koMatchMethod",
+        StrId::STR_SYNC_SERVER));
     add(SettingInfo::DynamicEnum(
         StrId::STR_SEND_METADATA, {StrId::STR_OFF, StrId::STR_ON},
         [] { return static_cast<uint8_t>(KOREADER_STORE.getSendMetadata()); },

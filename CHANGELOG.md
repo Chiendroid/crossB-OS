@@ -5,7 +5,7 @@
 - Assign Select Chapter to shortcuts, Quick Actions, or touch gestures to open the chapter list directly in EPUB and XTC books.
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
 - Preview OPDS book descriptions before downloading, with scrollable text on touch and button devices. Long descriptions show a bounded excerpt.
-- Sync a selected EPUB’s progress or an XTC book’s reading stats from its Library or File Browser context menu; Sync Folder and Sync All Books include XTC stats too.
+- Sync a selected EPUB’s progress or an XTC book’s reading stats from its Library or File Browser context menu; Sync Folder and Sync Books include XTC stats too.
 - Use server filenames for OPDS downloads to match reading progress across devices; missing or unsafe names fall back to Author - Title.
 - View device hardware, firmware/build identity, storage, and memory diagnostics in Settings → System → About without exposing network or device identifiers. Export allowlisted diagnostics and global preferences as local support JSON after confirming the scope; optional EPUB overrides are anonymous, and network/device identifiers, credentials, and reading history are excluded.
 - Turn image grayscale on or off globally or for individual EPUB books, independently of text anti-aliasing.
@@ -14,7 +14,7 @@
 - Finished EPUB and XTC books show a checkmarked book icon in the File Browser and Library list.
 - Calibrate each screen edge in Settings → Display → Screen Calibration to keep text and status bars clear of the bezel. Calibration stays on the device when changing SD cards.
 - Choose Directional or Legacy menu navigation in Controls to restore the previous button behavior in Settings and the reader menu.
-- Sync All Books from Settings → System → Sync Server or the Reading Stats This Device page to sync progress, reading stats, and clippings for every Library book in one pass.
+- Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; after a one-time catch-up they send only books changed since the last sync.
 - Render publisher drop caps, bordered and shaded blocks, preserved whitespace, and more CSS selectors in EPUBs; scalable fonts also support mixed sizes within a line (CrossPoint #3891).
 - Install and edit interface languages from SD files, including community languages, with English fallback for missing translations. Browser translation editors and release downloads use an automatically generated, versioned English template and compatibility catalog.
 - Choose a Filename Fallback Font on ESP32-S3 devices to display missing characters in book titles and filenames while retaining the built-in font for supported text.
@@ -23,6 +23,7 @@
 - Tighten or widen Word Spacing with a -4 to +4 slider and live preview.
 - Adjust Character Spacing from -5 to +5 with a live preview in Reader settings and the in-book Reader Font menu.
 - On touch devices, adjust EPUB text selection with draggable handles and use the floating Look Up and Clip toolbar. Clipping remains available without an installed dictionary.
+- Adds batched folder syncing for book progress, reading stats, and clippings when servers support it
 
 ### Fixed
 
@@ -61,6 +62,7 @@
 - Display the "Sleeping..." toast on sleep.
 - Retry a saved Wi-Fi network found by scanning after the initial automatic connection fails, before asking you to select a network.
 - Restore Loading feedback for slow book opens, including cached books, after a 300 ms delay between loading stages; quick opens stay quiet.
+- Smart sync only looks up remote progress under the configured Document Matching method, so a position saved for a different version of the file can no longer move you to the wrong place.
 
 ### Changed
 
@@ -76,10 +78,15 @@
 - Skip text anti-aliasing on EPUB pages without text and avoid copying optimized images twice when they already match the display size.
 - Settings → System → KOReader Sync is now Sync Server, grouped into account, What to Sync, and Sync Options sections.
 - Reading Stats and Clippings sync stay off until you turn them on under What to Sync. Servers that cannot receive them are detected when you authenticate.
-- Rename sync actions to Sync Book and Sync Folder to reflect stats and clippings support, and File Transfer → Sync Stats to Nearby Stats Sync. Upload Stats becomes Sync All Books and follows your What to Sync choices.
+- Rename sync actions to Sync Book and Sync Folder to reflect stats and clippings support, and File Transfer → Sync Stats to Nearby Stats Sync. Upload Stats becomes Sync Books and follows your What to Sync choices; the Reading Stats page's sync button uploads reading stats only.
 - Every sync result, including a successful single-book sync, lists overall stats, reading stats, and clippings as Done, OFF, or Not supported.
-- Sync All Books from Reading Stats inside a book returns to that book afterwards instead of Home.
+- Syncing from Reading Stats inside a book returns to that book afterwards instead of Home.
 - Use consistent labels for cover options, date/time syncing, shortcuts, and status messages, including "Loading..." across loading screens.
+- Sync Behavior's Ask every time is now Ask on conflicts: every sync uploads without asking when the server has no position for the book, reports Already synced when positions match, and asks only when they differ.
+- On CrossPoint Sync servers, each CrossInk reader now sends reading progress under its own device id instead of one shared id, so the server can tell your readers apart. Other KOSync servers still receive the shared id.
+- Changing Document Matching on the reader or the web settings page now warns first: books get new ids, so the next Sync Books or Sync Folder checks every book again.
+- Sync Books and Sync Folder stay on one screen with the current book, a progress bar, and the running counts, instead of flashing a screen for every book. Failed books no longer stop the sync: the final screen lists each one with what failed ("Progress sync failed", "Stats sync failed", or "Clippings sync failed") and why. Use Up and Down to scroll a long list. In Ask on conflicts, choices wait until every book is done and are then shown one after another.
+- Sync Book on a single book shows which part failed with the book's title underneath and a result line for its progress, reading stats, and clippings.
 
 ## [v1.6.1] - 2026-10-03
 

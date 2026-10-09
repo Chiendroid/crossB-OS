@@ -16,6 +16,8 @@
 #include "ClippingStore.h"
 #include "CrossPointState.h"
 #include "RecentBooksStore.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncPending.h"
 
 namespace {
 constexpr char READ_FOLDER[] = "/Read";
@@ -207,6 +209,8 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
       }
     }
     commitMetadata();
+    if (!SyncPending::renamePath(oldPath, newPath)) LOG_ERR("BookMove", "Pending sync entry not renamed (non-fatal)");
+    BookSyncFile::onRenamed(oldPath, newPath);
     return RenameMigrationResult::KeepRenamed;
   };
 
@@ -278,6 +282,9 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
   }
 
   commitMetadata();
+  // A not-yet-uploaded book keeps its place in the next sync's push.
+  if (!SyncPending::renamePath(oldPath, newPath)) LOG_ERR("BookMove", "Pending sync entry not renamed (non-fatal)");
+  BookSyncFile::onRenamed(oldPath, newPath);
 
   return RenameMigrationResult::Success;
 }
@@ -317,6 +324,12 @@ bool migrateMovedEpubState(const std::string& oldPath, const std::string& newPat
     APP_STATE.openEpubPath = newPath;
     APP_STATE.saveToFile();
   }
+
+  if (!SyncPending::renamePath(oldPath, newPath)) {
+    LOG_ERR("BookMove", "Failed to move pending sync entry %s -> %s", oldPath.c_str(), newPath.c_str());
+    ok = false;
+  }
+  BookSyncFile::onRenamed(oldPath, newPath);
 
   return ok;
 }

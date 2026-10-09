@@ -146,7 +146,7 @@ void drawStatsHeader(GfxRenderer& renderer, const MappedInputManager* mappedInpu
     TouchHeaderBackButton::drawCompact(renderer, title, false, showDate, TouchHeaderBackButton::TITLE_VERTICAL_OFFSET,
                                        showSyncAction ? TouchHeaderBackButton::TRAILING_ACTION_RESERVE : 0);
     if (showSyncAction) {
-      // Touch has no Confirm hint, so Sync All Books sits opposite the back button.
+      // Touch has no Confirm hint, so Sync Reading Stats sits opposite the back button.
       const Rect header = TouchHeaderBackButton::compactHeaderRect(renderer);
       TouchHeaderBackButton::drawTrailingIcon(renderer, header, icon_cloud_upload_32);
       TouchRegistry::getInstance().add(TouchHeaderBackButton::trailingTouchRect(header), BookStatsTouchTarget::SyncAll,

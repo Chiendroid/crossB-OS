@@ -38,6 +38,8 @@
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncPending.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookMoveUtils.h"
 #include "util/FontFamilyLabel.h"
@@ -1459,6 +1461,10 @@ void CrossPointWebServer::handleDelete() const {
       if (f) f.close();
       success = Storage.remove(itemPath.c_str());
       clearBookCache(itemPath.c_str());
+      if (success) {
+        SyncPending::removePath(std::string(itemPath.c_str()));
+        BookSyncFile::onDeleted(std::string(itemPath.c_str()));
+      }
     }
 
     if (!success) {

@@ -177,6 +177,12 @@ book or image directly from another nearby CrossInk reader without joining a
 Wi-Fi network. See [Nearby File Transfer](./nearby-file-transfer.md) for the
 complete sender and receiver workflow.
 
+The **Sync Server** section syncs with your sync server account (set up in
+**Settings > System > Sync Server**): **Sync Books** syncs progress, reading
+stats, and clippings for every book, while **Sync Reading Stats** and **Sync
+Clippings** upload only that data. The last two appear when that data is turned
+on under **What to Sync**. See [Reading Stats Sync](./reading-stats-sync.md#ways-to-sync).
+
 On X4 Pro, the screen also includes **USB Drive**. This exposes the reader's SD
 card to a computer over USB for direct file management. See the
 [USB Drive instructions](./installation.md#usb-drive) for the safe-eject and
@@ -465,7 +471,7 @@ which status-bar items are shown.
 
 - **Wi-Fi Networks**: Connect to Wi-Fi networks for file transfers and firmware updates.
 
-- **Sync Server**: Account and options for syncing book progress with CrossPoint Sync or a KOReader-compatible server, plus reading stats and clippings on CrossPoint Sync (see [Reading Stats Sync](reading-stats-sync.md)). **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask every time** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation.
+- **Sync Server**: Account and options (no sync actions; those are in [File Transfer](#35-file-transfer-screen)) for syncing book progress with CrossPoint Sync or a KOReader-compatible server, plus reading stats and clippings on CrossPoint Sync (see [Reading Stats Sync](reading-stats-sync.md)). **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask on conflicts** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation.
 
 - **OPDS Servers**: Manage one or more OPDS [(Open Publication Distribution System)](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) libraries for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
 
@@ -647,7 +653,7 @@ If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only fo
 
 Once any of the options above is set up, press **Confirm** while reading to open the reader menu, then select **Sync Book**. Alternatively, set **Settings -> Controls -> Long-press Menu** to **KOSync** and hold Confirm to launch sync directly.
 
-- With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
+- With **Sync Behavior** set to **Ask on conflicts**, CrossInk asks only when the server's position differs from yours: choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress. With no remote position it uploads without asking, and matching positions show **Already synced**.
 - With **Sync Behavior** set to **Smart sync**, CrossInk auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.
 
 ### 3.7 Sleep Screen

@@ -39,6 +39,7 @@
 #include <memory>
 #include <vector>
 
+#include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DeviceCapabilities.h"
@@ -65,6 +66,7 @@
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/EpubReaderFootnotesActivity.h"
+#include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderUtils.h"
@@ -88,6 +90,11 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "simulator/SimulatorHomeKeyInput.h"
+#include "sync/BookSyncFile.h"
+#include "sync/SyncIds.h"
+#include "sync/SyncParked.h"
+#include "sync/SyncPending.h"
+#include "sync/SyncState.h"
 #include "util/ButtonShortcutController.h"
 #include "util/Dictionary.h"
 
@@ -807,8 +814,11 @@ enum class SmokeStep : uint8_t {
   SyncServerCaptureBottom,
   SyncServerCaptureUnsupported,
   SyncServerCaptureStats,
+  SyncServerCaptureFileTransfer,
   StatsUploadReturn,
   StatsUploadEmptyDone,
+  KeptPositionDone,
+  MatchingChangeDone,
   RecentLibrary,
   Settings,
   SideButtons,
@@ -847,8 +857,9 @@ class HomeReaderSmokeActivity final : public Activity {
 };
 
 // Stands in for a reader hosting Reading Stats: its result handler must run
-// before Sync All replaces the stack, even when it pushes another screen.
+// before the sync replaces the stack, even when it pushes another screen.
 bool statsParentHandlerRan = false;
+bool secondSyncStarted = false;
 
 class StatsParentSmokeActivity final : public Activity {
  public:
@@ -1982,6 +1993,20 @@ class SimulatorSmokeTest {
         lock.isQuickLocked())
       fail("Side-button long Quick Lock did not unlock on a fresh hold");
     LOG_INF("SMOKE", "Side-button migration and press/release checks passed");
+  }
+
+  // Keeps remote-progress.json (first.epub at page 7 of 10) for `bookPath`,
+  // as a pull that could not apply it would.
+  static bool parkRemoteFixture(const char* bookPath, const float scale = 1.0f) {
+    JsonDocument remote;
+    if (deserializeJson(remote, Storage.readFile("/remote-progress.json").c_str())) return false;
+    KOReaderProgressChange parked;
+    parked.document = BookSyncFile::documentId(bookPath);
+    parked.percentage = remote["percentage"].as<float>() * scale;
+    parked.progress = remote["progress"].as<const char*>();
+    parked.device = "Phone";
+    parked.timestamp = 2;
+    return !parked.document.empty() && SyncParked::park(parked);
   }
 
   [[noreturn]] static void fail(const char* message) {
@@ -4040,6 +4065,9 @@ class SimulatorSmokeTest {
           if (Storage.exists("/menu-network-checked")) {
             if (!activityManager.isCurrentActivityNamed("Library") || APP_STATE.pendingOverlayResume.valid())
               fail("Completed menu sync did not return to Library");
+            // Sync Book reconciled the book, so the position kept for it is gone.
+            if (std::getenv("CROSSINK_READING_TEST_MENU_KEPT") && !SyncParked::empty())
+              fail("Sync Book left the book's kept position");
             LOG_INF("SMOKE", "Stats upload transport smoke passed");
             std::_Exit(0);
           }
@@ -4065,6 +4093,78 @@ class SimulatorSmokeTest {
         if (prepareReadingUploadSmokeTest()) {
           WiFi.mode(WIFI_STA);
           WiFi.begin("reading-smoke");
+          if (const char* matching = std::getenv("CROSSINK_READING_TEST_MATCHING")) {
+            // Sync state keyed by Filename ids: a recorded book, a prepared
+            // folder and a kept position, all dropped by a confirmed change.
+            if (!SyncState::load().save()) fail("Cannot save sync state fixture");
+            SyncScope scope;
+            scope.path = "/read";
+            scope.prepared = true;
+            scope.cursor = 5;
+            if (!SyncState::putScope(scope)) fail("Cannot prepare the sync scope fixture");
+            if (!parkRemoteFixture("/read/first.epub") || SyncIds::generation() == 0)
+              fail("Cannot record sync ids and a kept position");
+            inputScript.clear();
+            scriptIndex = 0;
+            inputCompletionStep = SmokeStep::MatchingChangeDone;
+            if (std::strcmp(matching, "web") == 0) {
+              // The web settings page saves through the settings list (after its own warning).
+              for (const auto& setting : getSettingsList())
+                if (setting.key && std::strcmp(setting.key, "koMatchMethod") == 0)
+                  setting.valueSetter(static_cast<uint8_t>(DocumentMatchMethod::BINARY));
+              inputScript.push_back(render("Web Document Matching change", 2));
+              step = SmokeStep::ReaderInput;
+              break;
+            }
+            activityManager.replaceActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
+            inputScript.push_back(render("Sync Server settings", 10));
+            // Up wraps to Send Metadata, then Document Matching.
+            addTap(mappedInputManager.menuButton(MappedInputManager::Button::Up));
+            addTap(mappedInputManager.menuButton(MappedInputManager::Button::Up));
+            addTap(MappedInputManager::Button::Confirm);
+            inputScript.push_back(render("Document Matching warning", 10));
+            inputScript.push_back(assertActivity("Confirmation"));
+            // Cancel is selected first; Confirm is the second option.
+            if (std::strcmp(matching, "confirm") == 0)
+              addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+            addTap(MappedInputManager::Button::Confirm);
+            inputScript.push_back(render("Sync Server after the warning", 10));
+            inputScript.push_back(assertActivity("KOReaderSettings"));
+            step = SmokeStep::ReaderInput;
+            break;
+          }
+          if (const char* kept = std::getenv("CROSSINK_READING_TEST_OPEN_KEPT")) {
+            // Another reader left first.epub further ahead (page 7 of 10 vs 2), or
+            // well behind it.
+            const bool prepared = std::strcmp(kept, "unprepared") != 0;
+            const bool behind = std::strcmp(kept, "behind") == 0;
+            if (!SyncState::load().save()) fail("Cannot save sync state fixture");
+            SyncScope scope;
+            scope.path = prepared ? "/read" : "/read-sibling";
+            scope.prepared = true;
+            if (!SyncState::putScope(scope)) fail("Cannot prepare the sync scope fixture");
+            if (behind) {
+              Epub book("/read/first.epub", "/.crosspoint");
+              if (!EpubReaderUtils::saveProgress(book, 1, 0, 4)) fail("Cannot move the local position to chapter 2");
+            }
+            if (!parkRemoteFixture("/read/first.epub", behind ? 0.1f : 1.0f)) fail("Cannot keep a remote position");
+            activityManager.goToReader("/read/first.epub");
+            inputScript.clear();
+            scriptIndex = 0;
+            inputCompletionStep = SmokeStep::KeptPositionDone;
+            inputScript.push_back(render("Reader with a kept position", 80));
+            if (prepared && !behind) {
+              inputScript.push_back(assertActivity("Confirmation"));
+              // Stay here is selected first; Continue is the second option.
+              if (std::strcmp(kept, "accept") == 0)
+                addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+              addTap(MappedInputManager::Button::Confirm);
+              inputScript.push_back(render("Reader after the kept position choice", 80));
+            }
+            inputScript.push_back(assertActivity("EpubReader"));
+            step = SmokeStep::ReaderInput;
+            break;
+          }
           if (std::getenv("CROSSINK_READING_TEST_MENU")) {
             for (const auto* path : {"/read/first.epub", "/read/notes.txt", "/read/book.xtc"}) {
               const auto actions = BookActions::buildBookActionItems(path, true);
@@ -4082,6 +4182,8 @@ class SimulatorSmokeTest {
             resume.origin = PendingOverlayOrigin::Library;
             resume.tab = 4;
             resume.pane = true;
+            if (std::getenv("CROSSINK_READING_TEST_MENU_KEPT") && !parkRemoteFixture("/read/first.epub"))
+              fail("Cannot keep a remote position");
             BookActions::syncProgress(
                 renderer, mappedInputManager,
                 std::getenv("CROSSINK_READING_TEST_COLD") ? "/read/unread.epub" : "/read/first.epub",
@@ -4106,25 +4208,42 @@ class SimulatorSmokeTest {
             inputScript.push_back(assertActivity("Library"));
             step = SmokeStep::ReaderInput;
             break;
+          } else if (std::getenv("CROSSINK_READING_TEST_CLIPPINGS_ONLY")) {
+            // Sync Clippings lists the clippings folder; no overall stats, stats, or progress.
+            // Started as if from File Transfer opened inside a book: leaving reopens it.
+            auto sync = std::make_unique<StatsUploadActivity>(renderer, mappedInputManager, std::string{},
+                                                              StatsUploadActivity::Scope::Clippings, true);
+            sync->setReturnToFileTransfer("/read/first.epub", false);
+            activityManager.replaceActivity(std::move(sync));
+            inputScript.clear();
+            scriptIndex = 0;
+            inputCompletionStep = SmokeStep::StatsUploadEmptyDone;
+            inputScript.push_back(render("Sync Clippings result", 100));
+            inputScript.push_back(assertActivity("StatsUpload"));
+            addTap(MappedInputManager::Button::Back);
+            inputScript.push_back(render("Back to the book", 60));
+            inputScript.push_back(assertActivity("EpubReader"));
+            step = SmokeStep::ReaderInput;
+            break;
           } else if (std::getenv("CROSSINK_READING_TEST_ALL")) {
-            // Sync All Books walks the Library index, not a folder.
+            // Sync Books walks the Library index, not a folder.
             library::BuildStats stats;
-            if (!library::buildLibraryIndex("/", stats)) fail("Cannot build Sync All Books Library fixture");
+            if (!library::buildLibraryIndex("/", stats)) fail("Cannot build Sync Books Library fixture");
             // An indexed book deleted afterwards is skipped, not a failure.
             if (!Storage.remove("/read-sibling/outside.epub")) fail("Cannot remove indexed fixture book");
             if (std::getenv("CROSSINK_READING_TEST_STATS_ENTRY")) {
-              // Reading Stats asks first, closes, then Sync All replaces the stack.
+              // Reading Stats asks first, closes, then Sync Reading Stats replaces the stack.
               activityManager.pushActivity(std::make_unique<StatsParentSmokeActivity>(renderer, mappedInputManager));
               inputScript.clear();
               scriptIndex = 0;
               inputCompletionStep = SmokeStep::StatsUploadEmptyDone;
-              inputScript.push_back(render("Reading stats before Sync All", 5));
+              inputScript.push_back(render("Reading stats before Sync Reading Stats", 5));
               addTap(MappedInputManager::Button::Confirm);
-              inputScript.push_back(render("Sync All confirmation", 5));
+              inputScript.push_back(render("Sync Reading Stats confirmation", 5));
               inputScript.push_back(assertActivity("Confirmation"));
               addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
               addTap(MappedInputManager::Button::Confirm);
-              inputScript.push_back(render("Sync All from Reading Stats", 100));
+              inputScript.push_back(render("Sync Reading Stats from Reading Stats", 100));
               inputScript.push_back(assertActivity("StatsUpload"));
               addTap(MappedInputManager::Button::Back);
               inputScript.push_back(assertActivity("Home"));
@@ -4162,12 +4281,14 @@ class SimulatorSmokeTest {
           if (!std::getenv("CROSSINK_READING_TEST_CANCEL")) {
             addTap(MappedInputManager::Button::Confirm);
             if (std::getenv("CROSSINK_READING_TEST_ASK")) {
-              for (int book = 0; book < 2; ++book) {
+              // Ask on conflicts: only first.epub's differing remote position asks, after
+              // the run; second.EPUB has no remote position and uploads without asking.
+              for (int book = 0; book < 1; ++book) {
                 inputScript.push_back(render("Folder sync choice", 25));
                 inputScript.push_back(assertActivity("KOReaderSync"));
                 if (std::getenv("CROSSINK_READING_TEST_ASK_CANCEL")) break;
                 if (std::getenv("CROSSINK_READING_TEST_ASK_SKIP")) {
-                  // Skip book is one step up from the default on both prompts.
+                  // Skip book is one step up from the default.
                   addTap(MappedInputManager::Button::Up);
                   inputScript.push_back(render("Folder sync Skip book selected", 5));
                   addTap(MappedInputManager::Button::Confirm);
@@ -4186,31 +4307,9 @@ class SimulatorSmokeTest {
               }
             }
             inputScript.push_back(render("Folder upload result", 100));
-            if (std::getenv("CROSSINK_READING_TEST_SKIP_FAILED")) {
-              const bool invalidBook = std::getenv("CROSSINK_READING_TEST_INVALID_BOOK");
-              const int failures = std::getenv("CROSSINK_READING_TEST_ALL_FAIL") ? 2 : 1;
-              for (int i = 0; i < failures; ++i) {
-                inputScript.push_back(assertActivity(invalidBook ? "StatsUpload" : "KOReaderSync"));
-                if (std::getenv("CROSSINK_READING_TEST_TOUCH")) {
-#if CROSSINK_APP_CAP_TOUCH
-                  if (!mappedInputManager.hasTouchHardware()) fail("Touch skip test requires a touch simulator");
-                  const auto area = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-                  const auto& metrics = UITheme::getInstance().getMetrics();
-                  const int x = area.x + area.width / 2;
-                  const int y = area.y + area.height - (invalidBook ? 52 : metrics.verticalSpacing + 28);
-                  inputScript.push_back(touchDown(x, y));
-                  inputScript.push_back(touchRelease(x, y));
-#else
-                  fail("Touch skip test requires a touch simulator");
-#endif
-                } else {
-                  addTap(MappedInputManager::Button::Confirm);
-                }
-                inputScript.push_back(render("Folder sync after skipping failed book", 100));
-              }
+            if (std::getenv("CROSSINK_READING_TEST_SKIP_FAILED") || std::getenv("CROSSINK_READING_TEST_ERROR")) {
+              // Failed books never stop the run: it ends on the summary, which lists them.
               inputScript.push_back(assertActivity("StatsUpload"));
-            } else if (std::getenv("CROSSINK_READING_TEST_ERROR")) {
-              inputScript.push_back(assertActivity("KOReaderSync"));
             }
           }
           if (std::getenv("CROSSINK_READING_TEST_DONE_TOUCH")) {
@@ -4938,10 +5037,16 @@ class SimulatorSmokeTest {
           break;
         }
         inputCompletionStep = SmokeStep::StatsUploadReturn;
-        for (int i = 0; i < 5; ++i) addTap(MappedInputManager::Button::Down);  // Sync All Books.
+        // Sync actions live in File Transfer. With stats and clippings sync off,
+        // Sync Books is the last row, one step up from the first.
+        activityManager.goToFileTransfer();
+        inputScript.push_back(render("File Transfer", 10));
+        inputScript.push_back(assertActivity("NetworkModeSelection"));
+        addTap(MappedInputManager::Button::Up);
+        inputScript.push_back(render("Sync Books selected", 5));
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(assertActivity("StatsUpload"));
-        inputScript.push_back(render("Sync All Books confirmation", 10));
+        inputScript.push_back(render("Sync Books confirmation", 10));
         addTap(MappedInputManager::Button::Back);  // Opening does not upload.
         inputScript.push_back(assertActivity("Home"));
         step = SmokeStep::ReaderInput;
@@ -4964,7 +5069,7 @@ class SimulatorSmokeTest {
           RenderLock lock;
           captureStatusBarScreen("sync-server-3-progress-only");
         }
-        // Reading Stats "This Device" page offers Sync All Books once an account exists.
+        // Reading Stats "This Device" page offers Sync Reading Stats once the server accepts stats.
         GlobalReadingStats device;
         device.totalSessions = 12;
         device.totalReadingSeconds = 3456;
@@ -4979,19 +5084,125 @@ class SimulatorSmokeTest {
           RenderLock lock;
           captureStatusBarScreen("sync-server-4-stats-page");
         }
+        // File Transfer's Sync Server rows, with stats and clippings sync on.
+        KOREADER_STORE.setServerUrl("");
+        KOREADER_STORE.setSyncStats(true);
+        KOREADER_STORE.setSyncClippings(true);
+        SETTINGS.trackReadingStats = 1;
+        activityManager.goToFileTransfer();
+        inputScript.clear();
+        scriptIndex = 0;
+        inputCompletionStep = SmokeStep::SyncServerCaptureFileTransfer;
+        inputScript.push_back(render("File Transfer", 10));
+        addTap(MappedInputManager::Button::Up);  // last row: Sync Clippings
+        inputScript.push_back(render("File Transfer Sync Server rows", 6));
+        step = SmokeStep::ReaderInput;
+        break;
+      }
+
+      case SmokeStep::SyncServerCaptureFileTransfer: {
+        {
+          RenderLock lock;
+          captureStatusBarScreen("sync-server-5-file-transfer");
+        }
         LOG_INF("SMOKE", "Simulator smoke test passed: Sync Server captures");
         std::_Exit(0);
       }
 
       case SmokeStep::StatsUploadEmptyDone:
+        if (std::getenv("CROSSINK_READING_TEST_TWICE") && !secondSyncStarted) {
+          // A later sync of the same card: the catch-up is done, so only books
+          // changed since (marked pending) are sent.
+          secondSyncStarted = true;
+          LOG_INF("SMOKE", "Starting second sync");
+          if (std::getenv("CROSSINK_READING_TEST_FEED")) {
+            // Incremental Sync Folder: the first walk prepared /read, so this run
+            // pulls the change feed and pushes only the book marked pending.
+            if (!Storage.writeFile("/second-sync-started", "1")) fail("Cannot mark second sync");
+            if (!SyncPending::mark("/read/sub/second.EPUB", SyncPending::PROGRESS_BIT))
+              fail("Cannot mark book progress pending");
+            // first.epub also gets a pulled change: its pending stats must survive the apply.
+            if (!SyncPending::mark("/read/first.epub", SyncPending::STATS_BIT)) fail("Cannot mark book stats pending");
+            if (std::getenv("CROSSINK_READING_TEST_PARKED")) {
+              // A remote position parked for second.EPUB (further ahead): the push
+              // must compare with it (Smart applies it) instead of uploading.
+              if (!parkRemoteFixture("/read/sub/second.EPUB")) fail("Cannot park a remote position");
+            }
+            activityManager.replaceActivity(std::make_unique<StatsUploadActivity>(
+                renderer, mappedInputManager, "/read", StatsUploadActivity::Scope::Folder, true));
+            inputScript.clear();
+            scriptIndex = 0;
+            inputCompletionStep = SmokeStep::StatsUploadEmptyDone;
+            inputScript.push_back(render("Incremental sync result", 100));
+            inputScript.push_back(assertActivity("StatsUpload"));
+            step = SmokeStep::ReaderInput;
+            break;
+          }
+          const bool clippingsOnly = std::getenv("CROSSINK_READING_TEST_CLIPPINGS_ONLY");
+          if (clippingsOnly) {
+            // Save a clipping the way the reader does; the store queues the book itself.
+            if (!CLIPPINGS.loadForBook("/read/first.epub", "Fixture", "Writer", "epub") ||
+                CLIPPINGS.addClipping(0, 3, 3, 10, 1, 3, 4, "Chapter", UINT16_MAX, "A later clipping", UINT16_MAX,
+                                      1234) != ClippingStore::AddResult::Added)
+              fail("Cannot add a clipping between syncs");
+            CLIPPINGS.unload();
+          } else if (const char* changed = std::getenv("CROSSINK_READING_TEST_MARK_PENDING")) {
+            if (!SyncPending::mark(changed, SyncPending::STATS_BIT)) fail("Cannot mark book pending");
+          }
+          const auto scope =
+              clippingsOnly ? StatsUploadActivity::Scope::Clippings : StatsUploadActivity::Scope::ReadingStats;
+          activityManager.replaceActivity(
+              std::make_unique<StatsUploadActivity>(renderer, mappedInputManager, std::string{}, scope, true));
+          inputScript.clear();
+          scriptIndex = 0;
+          inputCompletionStep = SmokeStep::StatsUploadEmptyDone;
+          inputScript.push_back(render("Second sync result", 100));
+          inputScript.push_back(assertActivity("StatsUpload"));
+          step = SmokeStep::ReaderInput;
+          break;
+        }
         if (std::getenv("CROSSINK_READING_TEST_STATS_ENTRY") && !statsParentHandlerRan)
-          fail("Reading Stats parent handler did not run before Sync All replaced the stack");
+          fail("Reading Stats parent handler did not run before the sync replaced the stack");
         LOG_INF("SMOKE", "Stats upload transport smoke passed");
         std::_Exit(0);
 
+      case SmokeStep::KeptPositionDone: {
+        const bool prepared = std::strcmp(std::getenv("CROSSINK_READING_TEST_OPEN_KEPT"), "unprepared") != 0;
+        // Offered (and settled either way) only inside a prepared scope.
+        if (SyncParked::empty() != prepared) fail("Kept position not settled as expected");
+        const char* kept = std::getenv("CROSSINK_READING_TEST_OPEN_KEPT");
+        if (std::strcmp(kept, "decline") == 0 || std::strcmp(kept, "behind") == 0) {
+          // Staying here, or being further along already, queues this reader's
+          // position for the next sync.
+          SyncPending::Cursor cursor;
+          std::string path;
+          uint8_t mask = 0;
+          bool queued = false;
+          if (!cursor.begin()) fail("Cannot read pending books");
+          while (cursor.next(path, mask) == SyncPending::Cursor::Step::Entry)
+            queued |= path == "/read/first.epub" && (mask & SyncPending::PROGRESS_BIT);
+          if (!queued) fail("Declined kept position did not queue local progress");
+        }
+        LOG_INF("SMOKE", "Stats upload transport smoke passed");
+        std::_Exit(0);
+      }
+
+      case SmokeStep::MatchingChangeDone: {
+        const bool changed = std::strcmp(std::getenv("CROSSINK_READING_TEST_MATCHING"), "cancel") != 0;
+        SyncScope scope;
+        const bool prepared = SyncState::findScope("/read", scope) && scope.prepared && scope.cursor == 5;
+        if ((KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::BINARY) != changed)
+          fail("Document Matching was not saved as chosen");
+        // Changed: ids, kept positions and scope progress start over. Cancelled: untouched.
+        if (SyncParked::empty() != changed || (SyncIds::generation() == 0) != changed || prepared == changed)
+          fail("Sync state does not match the Document Matching choice");
+        LOG_INF("SMOKE", "Stats upload transport smoke passed");
+        std::_Exit(0);
+      }
+
       case SmokeStep::StatsUploadReturn:
         KOREADER_STORE.setCredentials("", "");
-        LOG_INF("SMOKE", "Sync All Books entry and cancellation passed");
+        LOG_INF("SMOKE", "Sync Books entry and cancellation passed");
         activityManager.goToSettings();
         queueStep(mappedInputManager.hasHomeKey() ? "Settings landscape" : "Settings", SmokeStep::Settings);
         break;

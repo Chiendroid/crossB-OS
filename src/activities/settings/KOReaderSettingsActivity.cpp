@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
 #include <Memory.h>
 
 #include <cstring>
@@ -9,13 +10,16 @@
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
-#include "activities/network/StatsUploadActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "sync/DocumentMatching.h"
+#include "sync/SyncPending.h"
+#include "sync/SyncState.h"
 #include "util/InputReleaseGuard.h"
 
 namespace fui = freeink::ui;
@@ -28,7 +32,6 @@ enum Row : uint8_t {
   ROW_SERVER_URL,
   ROW_SIGN_UP,
   ROW_AUTHENTICATE,
-  ROW_SYNC_ALL,
   ROW_INCLUDE_STATS,
   ROW_INCLUDE_CLIPPINGS,
   ROW_SYNC_BEHAVIOR,
@@ -37,9 +40,9 @@ enum Row : uint8_t {
   ROW_COUNT
 };
 constexpr StrId ROW_LABELS[ROW_COUNT] = {
-    StrId::STR_USERNAME,      StrId::STR_PASSWORD,          StrId::STR_SYNC_SERVER_URL, StrId::STR_SIGN_UP,
-    StrId::STR_AUTHENTICATE,  StrId::STR_SYNC_ALL_BOOKS,    StrId::STR_READING_STATS,   StrId::STR_CLIPPINGS,
-    StrId::STR_SYNC_BEHAVIOR, StrId::STR_DOCUMENT_MATCHING, StrId::STR_SEND_METADATA};
+    StrId::STR_USERNAME,          StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL, StrId::STR_SIGN_UP,
+    StrId::STR_AUTHENTICATE,      StrId::STR_READING_STATS, StrId::STR_CLIPPINGS,       StrId::STR_SYNC_BEHAVIOR,
+    StrId::STR_DOCUMENT_MATCHING, StrId::STR_SEND_METADATA};
 constexpr fui::ActionId ACTION_ROW = 1;
 
 bool serverLacksExtensions() { return KOREADER_STORE.getServerSupport() == SyncServerSupport::UNSUPPORTED; }
@@ -201,24 +204,22 @@ void KOReaderSettingsActivity::handleSelection() {
       silentRestartToNetwork(NetworkBootTarget::KOREADER_AUTH);
       break;
     case ROW_INCLUDE_STATS:
-    case ROW_INCLUDE_CLIPPINGS:
+    case ROW_INCLUDE_CLIPPINGS: {
       // Flipping the shown value records an explicit choice over the server default.
-      if (selectedIndex == ROW_INCLUDE_STATS)
-        KOREADER_STORE.setSyncStats(!KOREADER_STORE.getSyncStats());
+      const bool stats = selectedIndex == ROW_INCLUDE_STATS;
+      const bool enabled = !(stats ? KOREADER_STORE.getSyncStats() : KOREADER_STORE.getSyncClippings());
+      if (stats)
+        KOREADER_STORE.setSyncStats(enabled);
       else
-        KOREADER_STORE.setSyncClippings(!KOREADER_STORE.getSyncClippings());
+        KOREADER_STORE.setSyncClippings(enabled);
       KOREADER_STORE.saveToFile();
+      // Off: nothing of that type is queued any more. On: changes made while it
+      // was off were never queued, so the next sync re-sends that data once.
+      if (enabled)
+        SyncState::restartCatchup(stats);
+      else
+        SyncPending::clearEverywhere(stats ? SyncPending::STATS_BIT : SyncPending::CLIPPINGS_BIT);
       requestUpdate();
-      break;
-    case ROW_SYNC_ALL: {
-      // Progress for every Library book, plus stats and clippings where enabled.
-      if (!KOREADER_STORE.hasCredentials()) return;
-      auto sync = makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput);
-      if (!sync) {
-        LOG_ERR("StatsSync", "Cannot allocate Sync All Books activity");
-        return;
-      }
-      activityManager.replaceActivity(std::move(sync));
       break;
     }
     case ROW_SYNC_BEHAVIOR: {
@@ -231,11 +232,20 @@ void KOReaderSettingsActivity::handleSelection() {
       break;
     }
     case ROW_DOCUMENT_MATCHING: {
-      const auto current = KOREADER_STORE.getMatchMethod();
-      KOREADER_STORE.setMatchMethod(current == DocumentMatchMethod::FILENAME ? DocumentMatchMethod::BINARY
-                                                                             : DocumentMatchMethod::FILENAME);
-      KOREADER_STORE.saveToFile();
-      requestUpdate();
+      // Every book gets a new id, so warn before resetting the sync state.
+      auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, std::string{},
+                                                                  tr(STR_MATCHING_CHANGE_WARNING));
+      if (!confirmation) {
+        LOG_ERR("KOSync", "OOM: Document Matching confirmation");
+        break;
+      }
+      startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
+        if (result.isCancelled) return;
+        DocumentMatching::set(KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME
+                                  ? DocumentMatchMethod::BINARY
+                                  : DocumentMatchMethod::FILENAME);
+        requestUpdate();
+      });
       break;
     }
     case ROW_SEND_METADATA:
@@ -283,7 +293,6 @@ void KOReaderSettingsActivity::fillRow(const uint16_t row, fui::ListItem& item) 
       break;
     case ROW_SIGN_UP:
     case ROW_AUTHENTICATE:
-    case ROW_SYNC_ALL:
       if (needsCredentials) rowValue = std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
       break;
     case ROW_INCLUDE_STATS:
