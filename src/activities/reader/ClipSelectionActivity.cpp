@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <MemoryBudget.h>
 
 #include <algorithm>
 #include <cstring>
@@ -95,7 +96,13 @@ void ClipSelectionActivity::onEnter() {
   if (hasDictionaryRequest) {
     if (!finishDictionarySelection()) {
       ActivityResult result;
-      result.isCancelled = true;
+      if (textBuildMemoryError) {
+        ClippingResult failure;
+        failure.memoryError = true;
+        result = ActivityResult{std::move(failure)};
+      } else {
+        result.isCancelled = true;
+      }
       setResult(std::move(result));
       finish();
     }
@@ -271,6 +278,16 @@ void ClipSelectionActivity::loop() {
     return;
   }
 
+  if (textBuildMemoryError) {
+    int x = 0, y = 0;
+    if (mappedInput.wasReleased(Button::Back) || mappedInput.wasReleased(Button::Confirm) ||
+        mappedInput.wasScreenTapped(x, y)) {
+      textBuildMemoryError = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   const int total = static_cast<int>(readingOrderSize);
 
   auto moveCursor = [this](const int nextOrderIdx) {
@@ -410,6 +427,15 @@ uint16_t ClipSelectionActivity::tableSelectionForRange(const int from, const int
   return first.tableSelection;
 }
 
+bool ClipSelectionActivity::hasTextBuildMemory(const int from, const int to, const uint16_t tableSelection) const {
+  const auto budget = ClipTextBuilder::allocationBudget(wordStore, readingOrder.data(), from, to, tableSelection);
+  const auto heap = MemoryBudget::snapshot();
+  if (budget.fits(heap.freeHeap, heap.maxAllocHeap)) return true;
+  LOG_ERR("CLIP", "Low heap assembling selection (%u free, %u largest; %u text + %u temporary)", heap.freeHeap,
+          heap.maxAllocHeap, static_cast<unsigned>(budget.textCapacity), static_cast<unsigned>(budget.temporaryBytes));
+  return false;
+}
+
 void ClipSelectionActivity::confirmSelection() {
   if (startMarkIdx == -1) {
     startMarkIdx = cursorIdx;
@@ -420,6 +446,11 @@ void ClipSelectionActivity::confirmSelection() {
   const int from = std::min(startMarkIdx, cursorIdx);
   const int to = std::max(startMarkIdx, cursorIdx);
   const uint16_t tableSelection = tableSelectionForRange(from, to);
+  if (!hasTextBuildMemory(from, to, tableSelection)) {
+    textBuildMemoryError = true;
+    requestUpdate();
+    return;
+  }
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        nullptr, tableSelection);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
@@ -487,6 +518,10 @@ bool ClipSelectionActivity::finishDictionarySelection() {
       dictionaryRequest.firstPageOffset,     dictionaryRequest.firstPageWordOrdinal,
       dictionaryRequest.firstWordByteOffset, dictionaryRequest.lastPageOffset,
       dictionaryRequest.lastPageWordOrdinal, dictionaryRequest.lastWordByteEndOffset};
+  if (!hasTextBuildMemory(from, to)) {
+    textBuildMemoryError = true;
+    return false;
+  }
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        &selectionBounds);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
@@ -516,6 +551,11 @@ void ClipSelectionActivity::render(RenderLock&&) {
   }
 
   drawHighlights();
+  if (textBuildMemoryError) {
+    GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
+    renderer.displayBuffer();
+    return;
+  }
 
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
   const auto labels =

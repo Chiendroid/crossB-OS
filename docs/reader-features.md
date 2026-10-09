@@ -230,11 +230,15 @@ from the reader menu or a configured shortcut, select text, and save it.
 
 On button devices, move the cursor with the direction buttons, press **Select**
 at the first word, move to the last word, then press **Done**. On touchscreen
-devices, a tap saves the single word you touch. To save a range, touch and hold
-the first word until range selection begins, drag to the last word, then lift
-your finger; CrossInk saves the clipping immediately. A touch drag does not
-turn pages, so use the direction buttons if a clipping must extend to another
-page.
+devices in Create Clipping mode, tap the first and last words, or touch and
+hold the first word, drag to the last word, then lift your finger to save.
+Hold on the page's final word for about one second to extend onto the next
+loaded page.
+
+You can also touch and hold text directly on the EPUB reading page with
+**Touch Reader Controls** enabled. Drag to select a phrase if needed, then
+lift your finger and choose **Create Clipping** or **Look Up**. Clipping is
+available even without a dictionary; lookup requires an active dictionary.
 
 A saved clipping is used in three ways:
 

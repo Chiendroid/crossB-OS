@@ -22,6 +22,7 @@
 - Show the current chapter title under the book title in the reader menu on button devices and in the X4 Pro pull-down drawer; the drawer tightens its spacing to keep the handle on screen in landscape.
 - Tighten or widen Word Spacing with a -4 to +4 slider and live preview.
 - Adjust Character Spacing from -5 to +5 with a live preview in Reader settings and the in-book Reader Font menu.
+- On touch devices, adjust EPUB text selection with draggable handles and use the floating Look Up and Clip toolbar. Clipping remains available without an installed dictionary.
 
 ### Fixed
 

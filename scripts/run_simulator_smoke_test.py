@@ -143,7 +143,9 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE"] = "1"
         if args.status_bar_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.status_bar_captures).resolve())
-        if args.dictionary:
+        if args.clipping_selection:
+            env["CROSSINK_SIMULATOR_SMOKE_CLIPPING_SELECTION"] = "1"
+        if args.dictionary or args.clipping_selection:
             dictionary = temp_root / "fs_" / "dictionary-smoke"
             dictionary.mkdir()
             words = sorted(["accord", "aime", "après", "d'accord", "est", "histoire", "inspecteur", "école"])
@@ -159,7 +161,8 @@ def run_smoke(args: argparse.Namespace) -> int:
                 "StarDict's dict ifo file\nversion=2.4.2\nbookname=French smoke\n"
                 f"wordcount={len(words)}\nidxfilesize={len(index)}\nsametypesequence=m\n"
             )
-            env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
+            if args.dictionary and not args.clipping_selection:
+                env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
         if args.font_dir and args.font_family:
             env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
@@ -228,6 +231,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
 
+    if args.clipping_selection and "Simulator smoke test passed: touch clipping actions" not in proc.stdout:
+        print("Simulator did not complete the touch clipping checks", file=sys.stderr)
+        return 2
+
     if args.font_family:
         tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
         reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
@@ -251,6 +258,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language-installer", help="Native I18nIntegrationTool built from the same source (required with --language-file)")
     parser.add_argument("--hyphenation", action="store_true", help="Check SD pack management, pinned flash banks, restart activation and deletion")
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
+    parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
