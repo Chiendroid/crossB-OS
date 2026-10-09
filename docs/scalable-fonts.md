@@ -1,21 +1,28 @@
-# Scalable fonts on ESP32-S3 devices
+# Scalable fonts on X4 Classic, X4 Pro, and Sticky
 
-On ESP32-S3 readers, CrossInk includes Bitter and Lexend Deca as scalable
-TrueType fonts. You can also add static TrueType `.ttf` and OpenType CFF `.otf`
-fonts. ESP32-C3 readers continue to use bitmap fonts and `.cpfont` font packs.
+On the X4 Classic, X4 Pro, and Sticky, CrossInk's built-in fonts (Bitter and
+Lexend Deca) are scalable, so you can pick any size from 8 to 22 pt. You can also
+add your own static TrueType (`.ttf`) and OpenType (`.otf`) fonts. These
+readers have extra memory that makes this possible. The original X3 and X4 use
+fixed-size fonts and `.cpfont` font packs instead.
 
 ## Add your own scalable fonts
 
 1. Copy your `.ttf` or `.otf` files into a family folder on the SD card, such as
    `/fonts/My Font/`. The hidden `/.fonts/My Font/` location works too.
-2. If you copied the files using a computer, restart the reader or refresh its
-   font list.
+2. If you copied the files using a computer, put the SD card back and restart the
+   reader so it finds them.
 3. Choose the family from **Settings > Reader > Font Options > Font Family**, or
    from the font picker while reading.
 
 You can also upload `.ttf` or `.otf` files through the **Fonts** tab in the reader's web
 interface. See [SD Card Fonts](./sd-card-fonts.md) for how to open that interface.
 No font conversion or separate files for each size are needed.
+
+> [!NOTE]
+> A "static" font file holds one fixed style, such as Regular or Bold. These are
+> supported. "Variable" fonts (one file that holds many weights) and font
+> collections are not.
 
 For the full range of text styles, add all four files for a family: **regular**,
 **bold**, **italic**, and **bold italic**. CrossInk can use a family with fewer
@@ -25,13 +32,15 @@ scalable fonts and `.cpfont` files in separate family folders.
 
 ## Adjust the appearance
 
-After selecting a custom TTF family, open **TTF Rendering** under **Settings >
-Reader > Font Options**, or from the in-book font menu. These controls let you
+After selecting a custom `.ttf` or `.otf` family, open **TTF Rendering** under
+**Settings > Reader > Font Options**, or from the in-book font menu. These
+controls (such as **Hinting**, **Weight**, **Slant**, and **Stem Darkening**)
 adjust how the letters look on the e-ink screen. Changes to a family apply to
-all its styles and are remembered for that family. This option appears only
-for custom TTF fonts; built-in and `.cpfont` fonts do not use it.
+all its styles and are remembered for that family. **Reset TTF Defaults** undoes
+them. This option appears only for custom `.ttf` and `.otf` fonts; `.cpfont`
+fonts do not use it.
 
-Custom TTF fonts use the existing **8–22 pt** size choices. Changing fonts or
+Custom fonts use the same **8-22 pt** size choices as the built-in fonts. Changing fonts or
 their appearance may make CrossInk lay out the current book again, so page
 positions can change. Your bookmarks and clippings remain saved.
 
@@ -45,22 +54,21 @@ positions can change. Your bookmarks and clippings remain saved.
 - If both `/fonts` and `/.fonts` contain the same family, the copy in
   `/.fonts` takes precedence.
 
-If a font does not appear, check its file type and size, then refresh the font
-list or restart the reader. If the reader has too little free memory to open a
+If a font does not appear, check its file type and size, then restart the
+reader. If the reader has too little free memory to open a
 font, it may use a fallback font instead.
 
-## Implementation and upstream attribution
+## Implementation and upstream attribution (Advanced)
 
-The compatible OTF discovery/upload plumbing follows
+The `.otf` discovery and web upload support follows
 [CrossPoint runtime SD fonts #3646](https://github.com/crosspoint-reader/crosspoint-reader/pull/3646)
-and [web font upload #3717](https://github.com/crosspoint-reader/crosspoint-reader/pull/3717),
-reviewed at upstream develop `14423d4af9344d1e23f6dc9dbc0d857cd5394a8e`.
-Upstream accepts `.otf` extensions and `OTTO` upload signatures, but its pinned
-FreeInk SDK `425d200a8ea447326b4b9696e4e47dc84ad9d7f6` registers only the TrueType
-driver, with no CFF/CFF2 driver. Extension acceptance is not full OpenType support.
+and [web font upload #3717](https://github.com/crosspoint-reader/crosspoint-reader/pull/3717).
+Upstream accepts the `.otf` extension but its FreeInk SDK has no CFF (OpenType
+outline) driver, so extension support alone is not full OpenType support.
 
-CrossInk keeps SDK `1c54128ab3a5b7b5499f0f7c941a463507c41ab9`, the existing
-PSRAM feature gates, style metadata, font arenas and content-based rendering
-cache identities. The font catalog version changes to rebuild old discovery
-results. No CFF driver is added. The existing **TTF Rendering** menu also
-controls compatible OTF faces.
+CrossInk's S3 builds enable the SDK's CFF driver (`FREEINK_FONT_ENABLE_CFF`), so
+static OpenType CFF fonts really render, including CFF fonts named `.ttf`. The
+existing PSRAM feature gates, style metadata, font memory arenas, and
+content-based cache identities are kept. The font catalog version changed so old
+discovery results are rebuilt. The **TTF Rendering** menu also controls
+OpenType faces.

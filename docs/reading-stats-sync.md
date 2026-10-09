@@ -5,107 +5,34 @@ nav_order: 7
 
 # Reading Stats Sync
 
-CrossInk can sync all-time reading stats between nearby readers running CrossInk from **File Transfer > Nearby Stats Sync**. The sync is direct reader-to-reader; it does not use a server, account, or one "main" reader. This only works with CrossInk reading stats. This will _NOT_ work with any other firmware's reading stats.
+CrossInk can keep your reading progress, reading stats, and clippings in step across devices in two ways:
 
-## What Gets Synced
-
-Nearby Stats Sync shares only each reader's all-time counters:
-
-- total reading sessions
-- total reading time
-- total pages turned
-- completed books
-
-It does not sync per-book reading position, bookmarks, recent books, files, KOReader progress, settings, WiFi passwords, or OPDS servers.
-
-Each device owns one record, and the Reading Stats screen sums all the records it can read. The device does not merge another reader's totals into its local `global_stats.bin`.
-
-## How Nearby Sync Works
-
-1. Open **File Transfer > Nearby Stats Sync** on both readers.
-2. Press **Sync** on one reader only.
-3. The readers find each other over ESP-NOW and exchange their local
-   `/.crosspoint/global_stats.bin` payloads.
-4. Each reader saves the other reader's payload under
-   `/.crosspoint/synced_stats/device_<mac>.bin`.
-5. Future Reading Stats views show this reader's local stats plus the other
-   valid files in `/.crosspoint/synced_stats/`.
-
-The sync screen creates `/.crosspoint/synced_stats/` the first time you use it. That folder stores snapshots received from other readers. This reader's own all-time totals stay in `/.crosspoint/global_stats.bin`; CrossInk does not write this reader's own `device_<mac>.bin` file into `synced_stats/`.
-
-## SD Card Folder Structure
-
-The reading-stats files live under `.crosspoint` on the SD card:
-
-```text
-.crosspoint/
-├── global_stats.bin
-├── global_stats.bin.bak
-└── synced_stats/
-    ├── device_aabbccddeeff.bin
-    ├── device_112233445566.bin
-    └── manual-copy.bin
-```
-
-`global_stats.bin` is this reader's local all-time stats. The `.bak` file is a
-backup used if the main file is corrupt.
-
-`synced_stats/` contains one contribution file per other synced reader. Each file is a snapshot from the last time this reader received that device's stats; it is not a live copy of that other reader's current `global_stats.bin`. Files created by nearby sync use the peer reader's hardware MAC address in the file
-name: `device_<mac>.bin`, with no colons or dashes.
-
-When displaying aggregated stats, CrossInk reads every non-folder file in `synced_stats/` that has a valid CrossInk stats payload. The file name does not have to match `device_<mac>.bin` for manual imports. If a manually copied file matches this reader's own `device_<local-mac>.bin`, CrossInk skips it so local stats are not counted twice.
-
-## Manually Removing Synced Stats
-
-Back up the SD card first if the stats matter to you.
-
-To remove one old reader from the aggregate total, delete that reader's file from `/.crosspoint/synced_stats/` on every device that has it. For example:
-
-```text
-/.crosspoint/synced_stats/device_aabbccddeeff.bin
-```
-
-To stop using synced aggregate totals on a reader, delete the whole `/.crosspoint/synced_stats/` folder from that reader. As long as the folder is gone, local stats saves will not recreate it. Opening Nearby Stats Sync again will recreate the folder.
-
-To reset only this reader's local all-time totals, delete both:
-
-```text
-/.crosspoint/global_stats.bin
-/.crosspoint/global_stats.bin.bak
-```
-
-Do not delete `/.crosspoint/epub_<hash>/stats.bin` or versioned files such as
-`/.crosspoint/epub_<hash>/stats_v5.bin` unless you also want to remove the
-per-book stats for that book.
-
-If a sync was interrupted, a temporary `*.part` file may be left in `synced_stats/`. CrossInk ignores invalid stats files while aggregating, so it is safe to delete leftover `.part` files.
-
-## Manual Copying Between Devices
-
-You can manually copy a valid stats file into another reader's `/.crosspoint/synced_stats/` folder. A descriptive file name such as `old_reader.bin` can work because CrossInk validates the file contents, not the name.
-
-Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own local `global_stats.bin` into `synced_stats/` under a different name; CrossInk will treat it like another reader and the all-time total will be too high.
+- **Sync Server**: your readers share progress, stats, and clippings through an online sync server (CrossPoint Sync, or a KOReader-compatible server for progress). See [Server Sync Settings](#server-sync-settings) and [Ways to Sync](#ways-to-sync).
+- **Nearby Stats Sync**: two CrossInk readers swap all-time reading totals directly, with no server or account. See [Nearby Stats Sync](#nearby-stats-sync). To copy a reading position between two readers instead, see [Nearby Position Sync](./nearby-position-sync.md).
 
 ## Server Sync Settings
 
-Server sync is set up in **Settings > System > Sync Server**. It works with
-CrossPoint Sync (the default, `https://sync.crosspointreader.com`, or a
-self-hosted copy) and with KOReader-compatible servers. The screen holds
-configuration only; the sync actions themselves are under **File Transfer >
-Sync Server** (see [Ways to Sync](#ways-to-sync)). The screen has three groups:
+To set up server sync:
 
-- **Account**: username, password, server URL, Sign Up, and Authenticate.
+1. Open **Settings > System > Sync Server**.
+2. Enter a **Username** and **Password**. If you do not have an account yet, choose **Sign Up**.
+3. Choose **Authenticate** to check that the details work.
+
+The default server is CrossPoint Sync (`https://sync.crosspointreader.com`). You can also use a self-hosted copy or a KOReader-compatible server by changing **Sync Server URL**.
+
+This screen only holds settings. The sync actions themselves are in the **Sync Server** section of **File Transfer** (see [Ways to Sync](#ways-to-sync)). The screen has three groups:
+
+- **Account**: username, password, server URL, **Sign Up**, and **Authenticate**.
 - **What to Sync**: **Reading Stats** and **Clippings**.
-- **Sync Options**: Sync Behavior, Document Matching, and Send Metadata.
+- **Sync Options**: **Sync Behavior** (**Smart sync** or **Ask on conflicts**), **Document Matching** (**Filename** or **Binary**), and **Send Document Metadata**.
 
 Reading progress always syncs. **Reading Stats** and **Clippings** are off until
-you turn them on. They use the CrossPoint extension API, so they only apply to
-CrossPoint Sync servers:
+you turn them on. They only work with CrossPoint Sync servers:
 
 - The default server always supports them.
-- On a custom server, CrossInk checks for the extension API when you
-  **Authenticate**, and learns from the first stats or clippings upload. The
-  authentication screen says whether stats and clippings can sync too.
+- On a custom server, CrossInk checks when you **Authenticate**, and learns from
+  the first stats or clippings upload. The authentication screen says whether
+  stats and clippings can sync too.
 - On a KOReader-only server, both rows show **Requires CrossPoint Sync** and
   are skipped, even if turned on. Syncs finish normally instead of reporting a
   failed upload.
@@ -120,17 +47,17 @@ progress (EPUB only), plus reading stats and clippings when they are on under
 
 | Action | Where | Books |
 | --- | --- | --- |
-| **Sync Book** | Reader menu, frontlight panel, or a book's context menu in Library / File Browser | One book |
-| **Sync Folder** | Long-press a folder in File Browser | That folder and its subfolders |
-| **Sync Books** | **File Transfer > Sync Server** | Every book on the SD card |
+| **Sync Book** | Reader menu, frontlight panel, or a book's context menu in Library / Browse Files | One book |
+| **Sync Folder** | Long-press a folder in Browse Files | That folder and its subfolders |
+| **Sync Books** | **File Transfer**, **Sync Server** section | Every book on the SD card |
 
 Two more actions upload a single kind of data and never read or change reading
 positions:
 
 | Action | Where | Sends |
 | --- | --- | --- |
-| **Sync Reading Stats** | **File Transfer > Sync Server**, or the Reading Stats **This Device** page (Confirm on button devices, the upload icon on touch) | Overall stats, plus the saved stats of every book on the SD card, several books per request |
-| **Sync Clippings** | **File Transfer > Sync Server** | The clippings of every book that has any |
+| **Sync Reading Stats** | **File Transfer**, **Sync Server** section, or the Reading Stats **This Device** page (Confirm on button devices, the upload icon on touch) | Overall stats, plus the saved stats of every book on the SD card, several books per request |
+| **Sync Clippings** | **File Transfer**, **Sync Server** section | The clippings of every book that has any |
 
 These two appear only when their **What to Sync** toggle is on and the server is
 known to accept stats and clippings (the default server always is; a custom
@@ -172,12 +99,14 @@ with the same wording: **Done**, a count, **OFF** when that data is turned off,
 
 **Sync Books** walks the SD card directly, so it does not depend on the
 Library: books copied since the last Library refresh, and readers who only use
-the File Browser, are included. Each EPUB follows the same rules
-as **Sync Folder** below (Smart or Ask, failures listed at the end, Back to stop).
+Browse Files, are included. Each EPUB follows the same rules
+as **Sync Folder** below (**Smart sync** or **Ask on conflicts**, failures listed at the end, Back to stop).
 Missing files, unreadable book stats, and books with tracking disabled are
 skipped. Nearby readers' totals are never uploaded as your own.
 
 ### Incremental syncs (CrossPoint Sync)
+
+After the first full pass, later syncs only handle what changed, so they are much faster. The details below explain how this works.
 
 On a CrossPoint Sync server with the progress change feed, **Sync Books** and
 **Sync Folder** only walk their books once:
@@ -224,14 +153,14 @@ book close, sleep, or a timer. It does not enable device-wide tracking.
 Historical totals already included in overall stats remain part of that snapshot,
 even if tracking for an individual book is now disabled.
 
-Book matching uses the existing Filename/Binary setting. Keep it consistent across
+Book matching uses the **Document Matching** setting (**Filename** or **Binary**). Keep it consistent across
 readers; changing it or renaming a file can create another server record.
-Changing **Document Matching** (in Sync Options or the web settings page) asks
+Changing **Document Matching** (in **Sync Options** or the web settings page) asks
 first, because every book gets a new id: on confirm the reader forgets its
 book id map, kept positions, and each synced folder's progress, so the next
 **Sync Books** or **Sync Folder** checks every book again. Progress already on
 the server stays under the old ids until you merge the books in the web app.
-**Send Metadata** controls title, author, and filename sharing as it does for
+**Send Document Metadata** controls title, author, and filename sharing as it does for
 normal progress uploads.
 
 Press Back to stop between books. A network request has a bounded timeout.
@@ -244,12 +173,10 @@ snapshot, which replaces that device's overall server totals on the next upload.
 Do not copy another reader's local stats files onto this reader and upload both:
 those copied histories cannot be distinguished from reading performed locally.
 
-No cache-format migration or cache clearing is needed. Stats uploads use the same
-TLS policy as the existing KOReader progress-sync client: HTTPS encrypts traffic,
-but server certificates are not verified. No additional SDK changes or custom CA
-file are required. A configured plain HTTP server sends the authentication key
-and stats without encryption.
-
+> [!NOTE]
+> Advanced: stats uploads use the same security policy as KOReader progress
+> sync. HTTPS encrypts traffic, but server certificates are not verified. A
+> server set up with plain HTTP sends your login and stats without encryption.
 
 ## Progress and Stats Together
 
@@ -266,11 +193,10 @@ these saved snapshots when progress sync fails. Retry the manual sync to resend 
 
 ## Catch Up a Folder
 
-In **File Browser**, long-press a folder (hold Confirm on button devices), select
+In **Browse Files**, long-press a folder (hold Confirm on button devices), select
 **Sync Folder**, then confirm. This syncs saved EPUB positions in that
 folder and its subfolders. It reads the SD folders directly; no Library refresh is
-needed. XTC books in the folder sync their reading stats only. The global sync
-method applies to every EPUB: **Smart** keeps the further
+needed. XTC books in the folder sync their reading stats only. The **Sync Behavior** setting applies to every EPUB: **Smart sync** keeps the further
 progress, uploading local progress or applying remote progress as needed; **Ask
 on conflicts** asks only when the server's position differs from the reader's,
 showing the book's filename at the top. A book the server has no position for
@@ -306,7 +232,7 @@ extra upload failed. The final screen lists up to five failed books under
 for example "Progress sync failed: Sync server returned HTTP 500"; any more
 show as "+3 more". **Sync Book** on a single book shows the same heading, the
 title, and a Progress, Reading Stats and Clippings result. Missing data and disabled tracking show no upload rather
-than replacing server data with zeros. **Send Metadata** controls title,
+than replacing server data with zeros. **Send Document Metadata** controls title,
 author, and filename sharing just as it does for normal progress uploads.
 Press Back to stop, including from a conflict choice; a book with many clippings
 can take longer. Completed uploads and downloads remain applied if a later book
@@ -315,21 +241,107 @@ fails or you cancel.
 ## Clippings Upload
 
 With **Clippings** on, manual book sync and folder catch-up include the book's
-saved clippings. The first implementation is upload-only: it does not download
+saved clippings. Clippings are upload-only: CrossInk does not download
 server clippings or propagate local deletions. Notes and colors already on the
 server are preserved. Server-deleted IDs stay deleted; this uploader never revives
 a server tombstone.
 
-IDs follow the server's SHA-256 rule using the uploaded creation value and exact
-text, so unchanged clippings keep the same ID across retries. New clippings save
-UTC creation time from the available clock, or zero when no clock is available.
-Older uptime-based timestamps are exported as zero (unknown), not as dates near
-1970. Identical undated quote text within one book shares one server ID; local
-records remain separate. No historical dates are invented and no clipping file
-migration is performed. One clipping is read and sent at a
-time, including its chapter and saved layout hints, without loading all clippings
-into memory. The server's 4096-byte text limit matches the local clipping limit.
+> [!NOTE]
+> Advanced: IDs follow the server's SHA-256 rule using the uploaded creation value and exact
+> text, so unchanged clippings keep the same ID across retries. New clippings save
+> UTC creation time from the available clock, or zero when no clock is available.
+> Older uptime-based timestamps are exported as zero (unknown), not as dates near
+> 1970. Identical undated quote text within one book shares one server ID; local
+> records remain separate. No historical dates are invented and no clipping file
+> migration is performed. One clipping is read and sent at a
+> time, including its chapter and saved layout hints, without loading all clippings
+> into memory. The server's 4096-byte text limit matches the local clipping limit.
 
-### Sync a selected book
+## Sync a Selected Book
 
-Choose **Sync Book** from an EPUB or XTC book's context menu in **Library** or **File Browser**. For an EPUB this uses the same sync behavior as the reader menu, including **Reading Stats** and **Clippings** only when enabled, and resumes in the selected book's reader. For an XTC book it sends that book's reading stats and overall stats, then returns Home. If account credentials are missing, account settings open first; return to the book menu to retry after setup. TXT and Markdown books do not show this action.
+Choose **Sync Book** from an EPUB or XTC book's context menu in **Library** or **Browse Files**. For an EPUB this uses the same sync behavior as the reader menu, including **Reading Stats** and **Clippings** only when enabled, and resumes in the selected book's reader. For an XTC book it sends that book's reading stats and overall stats, then returns Home. If account credentials are missing, account settings open first; return to the book menu to retry after setup. TXT and Markdown books do not show this action.
+
+## Nearby Stats Sync
+
+Nearby Stats Sync works directly from one reader to another; it does not use a server, account, or one "main" reader. It only works with CrossInk reading stats, not with any other firmware's reading stats.
+
+### What Gets Synced
+
+Nearby Stats Sync shares only each reader's all-time totals:
+
+- total reading sessions
+- total reading time
+- total pages turned
+- completed books
+
+It does not sync per-book reading position, bookmarks, files, KOReader progress, settings, Wi-Fi passwords, or OPDS servers.
+
+Each device owns one record, and the Reading Stats screen sums all the records it can read. The device does not merge another reader's totals into its local `global_stats.bin`.
+
+### How Nearby Sync Works
+
+1. On both readers, open **File Transfer** and select **Nearby Stats Sync** (in the **Nearby Device** section). It only appears while reading stats tracking is turned on.
+2. Press **Sync** on one reader only.
+3. The readers find each other and swap their totals.
+4. From then on, the Reading Stats screen on each reader shows its own stats plus the other reader's.
+
+> [!NOTE]
+> Advanced: the readers connect over ESP-NOW and exchange their local
+> `/.crosspoint/global_stats.bin` payloads. Each reader saves the other's payload under
+> `/.crosspoint/synced_stats/device_<mac>.bin`, and Reading Stats sums this reader's
+> local stats with the valid files in that folder.
+
+The sync screen creates `/.crosspoint/synced_stats/` the first time you use it. That folder stores snapshots received from other readers. This reader's own all-time totals stay in `/.crosspoint/global_stats.bin`; CrossInk does not write this reader's own `device_<mac>.bin` file into `synced_stats/`.
+
+### SD Card Folder Structure (Advanced)
+
+The reading-stats files live under `.crosspoint` on the SD card:
+
+```text
+.crosspoint/
+├── global_stats.bin
+├── global_stats.bin.bak
+└── synced_stats/
+    ├── device_aabbccddeeff.bin
+    ├── device_112233445566.bin
+    └── manual-copy.bin
+```
+
+`global_stats.bin` is this reader's local all-time stats. The `.bak` file is a
+backup used if the main file is corrupt.
+
+`synced_stats/` contains one contribution file per other synced reader. Each file is a snapshot from the last time this reader received that device's stats; it is not a live copy of that other reader's current `global_stats.bin`. Files created by nearby sync use the peer reader's hardware MAC address in the file
+name: `device_<mac>.bin`, with no colons or dashes.
+
+When displaying aggregated stats, CrossInk reads every non-folder file in `synced_stats/` that has a valid CrossInk stats payload. The file name does not have to match `device_<mac>.bin` for manual imports. If a manually copied file matches this reader's own `device_<local-mac>.bin`, CrossInk skips it so local stats are not counted twice.
+
+### Manually Removing Synced Stats (Advanced)
+
+Back up the SD card first if the stats matter to you.
+
+To remove one old reader from the aggregate total, delete that reader's file from `/.crosspoint/synced_stats/` on every device that has it. For example:
+
+```text
+/.crosspoint/synced_stats/device_aabbccddeeff.bin
+```
+
+To stop using synced aggregate totals on a reader, delete the whole `/.crosspoint/synced_stats/` folder from that reader. As long as the folder is gone, local stats saves will not recreate it. Opening Nearby Stats Sync again will recreate the folder.
+
+To reset only this reader's local all-time totals, delete both:
+
+```text
+/.crosspoint/global_stats.bin
+/.crosspoint/global_stats.bin.bak
+```
+
+Do not delete `/.crosspoint/epub_<hash>/stats.bin` or versioned files such as
+`/.crosspoint/epub_<hash>/stats_v5.bin` unless you also want to remove the
+per-book stats for that book.
+
+If a sync was interrupted, a temporary `*.part` file may be left in `synced_stats/`. CrossInk ignores invalid stats files while aggregating, so it is safe to delete leftover `.part` files.
+
+### Manual Copying Between Devices (Advanced)
+
+You can manually copy a valid stats file into another reader's `/.crosspoint/synced_stats/` folder. A descriptive file name such as `old_reader.bin` can work because CrossInk validates the file contents, not the name.
+
+Use normal `device_<mac>.bin` names when possible. Do not copy this reader's own local `global_stats.bin` into `synced_stats/` under a different name; CrossInk will treat it like another reader and the all-time total will be too high.

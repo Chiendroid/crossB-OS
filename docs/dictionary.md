@@ -6,11 +6,11 @@ nav_order: 5
 # Dictionary
 
 > [!TIP]
-> For the best experience, prepare your dictionary using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools), which creates `.oft` and `.oft.cspt` accelerator files. An unprepared dictionary with uncompressed `.dict` and `.idx` files also works: on its first lookup, CrossInk creates a smaller on-device `.qidx` quick index automatically.
+> For the best experience, prepare your dictionary on a computer using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools). It builds extra index files (`.oft` and `.oft.cspt`) that make lookups fast. A dictionary you have not prepared also works if its `.dict` and `.idx` files are uncompressed: on the first lookup, CrossInk builds a smaller quick index (`.qidx`) by itself.
 
 ## Supported Format
 
-The reader supports **StarDict** dictionaries. When searching for dictionaries online, look for "StarDict format" or files with `.dict`, `.idx`, and `.ifo` extensions.
+The reader supports **StarDict** dictionaries. When searching for dictionaries online, look for "StarDict format" or files ending in `.dict`, `.idx`, and `.ifo`.
 
 A dictionary folder typically contains:
 
@@ -27,14 +27,14 @@ Minimum requirement: one `.dict` and one `.idx` file in the same folder. Their f
 
 Example folder structure: `SDCARD/.dictionaries/Cambridge/*.dict`. Make sure the dictionary folder is **NOT** nested like `/Cambridge/Cambridge/*.dict`
 
-1. Copy your dictionary folder(s) to one of these directories on the SD card:
-   - `/.dictionaries/` (checked first)
-   - `/dictionaries/`
+1. Copy your dictionary folder(s) to the SD card, inside `/.dictionaries/` or `/dictionaries/`. The reader uses only one of these: if both exist, `/.dictionaries/` is used and `/dictionaries/` is ignored.
 2. If no dictionary has been selected before, the first dictionary in the alphabetical device list is selected automatically.
-3. To choose between multiple dictionaries, open **Settings -> Reader -> Dictionary** on the device and select one from the list.
-4. Per book dictionaries can be set from within the in-reader menu **Reader Menu > Settings (gear) > Book Dictionary**
+3. To choose between multiple dictionaries, open **Settings > Reader > Dictionary** on the device and select one from the list.
+4. To use a different dictionary for one book, open the Reader Menu, go to the Settings tab (gear icon), and choose **Book Dictionary**. See [Per-Book Dictionary](#per-book-dictionary).
 
 ### Preparing Compressed or Large Dictionaries
+
+Most people only need the first step: if your download has `.dz` files, prepare it with Inky. The rest of this section is extra detail for large dictionaries.
 
 CrossInk does not decompress dictionaries on the device. If a download contains `.dict.dz` or `.syn.dz`, run the bundled preparation tool on a computer before copying the folder to the SD card (see [Dictionary Tools](#dictionary-tools)).
 
@@ -78,7 +78,7 @@ immediately.
 
 ### Quick Lookup
 
-Set a shortcut to **Look Up Word** in **Settings -> Controls**. Holding that shortcut in the EPUB reader then enters word-select directly, skipping the reader menu. Release and navigate to a word as usual.
+Set a shortcut to **Look Up Word** in **Settings > Controls**. Holding that shortcut in the EPUB reader then enters word-select directly, skipping the reader menu. Release and navigate to a word as usual.
 
 ### How Lookup Works
 
@@ -183,7 +183,7 @@ The history screen shows the 50 most recent entries. The on-disk history is appe
 
 ## IPA Phonetic Characters
 
-Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in **Reader Menu > Font > Dictionary Font**. Choose **Use Global** there to return a book to the global dictionary font
+Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in the reader menu's **Dictionary Font** option. Choose **Use Global** there to return a book to the global dictionary font
 and size defaults. When the reader uses an SD-card font, you can choose a different dictionary size while keeping that same family; built-in reader fonts continue to use their active size. A saved size with no matching file uses the closest available size from the dictionary family.
 
 Only one SD-card font family is loaded at a time: CrossInk temporarily swaps to the dictionary font while a definition is open, then restores the reader font when you close it. If a book's selected dictionary font is missing, the definition temporarily uses the global dictionary font. If that is also unavailable, it falls back to the reader font. The per-book selection is kept so it resumes automatically if you reinstall the family.
@@ -198,7 +198,7 @@ See the [dictionary font builder](dictionary-development.md#generating-dictionar
 
 ## Dictionary Tools
 
-## Inky
+### Inky
 
 CrossInk's companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), prepares one StarDict dictionary at a time and generates the accelerator indexes used for fast lookups. It accepts either:
 
@@ -212,9 +212,9 @@ CrossInk's companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), p
 
 Inky decompresses `.dict.dz` and `.syn.dz` when needed, creates `.idx.oft`, `.idx.oft.cspt`, `.syn.oft`, and `.syn.oft.cspt`, and packages the prepared dictionary for you. The prepared download is available for 10 minutes.
 
-### Command Line
+### Command Line (Advanced)
 
-A command-line tool is included for working with StarDict dictionaries on your computer, without the device. It requires Python 3 and has no external dependencies.
+A command-line tool is included for working with StarDict dictionaries on your computer, without the device. It requires Python 3 and has no external dependencies. Most people can use Inky instead.
 
 #### Pre-processing
 
@@ -228,7 +228,7 @@ Run this before copying compressed dictionaries to the SD card. It is also recom
 
 The command produces, when applicable, `.dict`, `.syn`, `.idx.oft`, `.syn.oft`, `.idx.oft.cspt`, and `.syn.oft.cspt`. Copy these alongside the original `.idx` and optional `.ifo`. CrossInk uses `.idx.oft.cspt` first, then `.idx.oft`; when neither exists, it creates and uses `.qidx` on the device. If a quick index cannot be created, CrossInk scans the original index instead.
 
-### Looking Up a Word
+#### Looking Up a Word
 
 Look up a word from the command line:
 
@@ -238,7 +238,7 @@ python3 scripts/dictionary_tools.py lookup /path/to/dictionary-folder apple
 
 Prints the definition to stdout. Compressed dictionary data must be prepared with `prep` first.
 
-### Merging Dictionaries
+#### Merging Dictionaries
 
 Combine two or more StarDict dictionaries into a single monolithic dictionary:
 
