@@ -32,7 +32,7 @@ class FontInstaller {
   /// creates it under SdCardFontRegistry::defaultWriteRoot().
   bool ensureFamilyDir(const char* familyName);
 
-  /// Validate bitmap magic or a supported static TrueType-outline face on disk.
+  /// Validate bitmap magic or a supported static TrueType or CFF face on disk.
   static bool validateCpfontFile(const char* path);
 
   /// Validate a closed upload; remove failed or partial files.

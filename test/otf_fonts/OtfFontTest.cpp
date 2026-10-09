@@ -83,10 +83,11 @@ int main(int argc, char** argv) {
   put("/fonts/Bitmap/Bitmap_14.cpfont", Bytes{'C', 'P', 'F', 'O', 'N', 'T', 0, 0});
   assert(FontInstaller::validateCpfontFile("/fonts/Bitmap/Bitmap_14.cpfont"));
   put("/fonts/Cff/Cff.otf", cff);
+  put("/fonts/CffNamedTtf/Cff.ttf", cff);
   SdCardFontRegistry registry;
   assert(registry.loadNames());
   assert(registry.findFamily("Bitmap"));
-  assert(!registry.findFamily("Cff"));
+  assert(bool(registry.findFamily("Cff")) == bool(CROSSINK_SCALABLE_FONTS));
 #if CROSSINK_SCALABLE_FONTS
   const auto* family = registry.findFamily("Bitter");
   assert(family && family->isScalable() && family->files.size() == 4);
@@ -97,7 +98,23 @@ int main(int argc, char** argv) {
   freeink::font::FtFont::FaceInfo face;
   char familyName[64];
   assert(freeink::font::FtFont::inspectMemory(cff.data(), cff.size(), face, familyName, sizeof(familyName)) ==
-         freeink::font::FtFont::InspectResult::Unsupported);
+         freeink::font::FtFont::InspectResult::Ok);
+  // Real OpenType CFF, including a CFF file with a .ttf name. Font Awesome maps its icons in the PUA.
+  for (const char* path : {"/fonts/Cff/Cff.otf", "/fonts/CffNamedTtf/Cff.ttf"}) {
+    HalScalableFont::Info info;
+    assert(HalScalableFont::inspectFile(path, info));
+    assert(FontInstaller::validateCpfontFile(path));
+    for (auto mode : {HalScalableFont::FileMode::Auto, HalScalableFont::FileMode::Stream,
+                      HalScalableFont::FileMode::Temporary, HalScalableFont::FileMode::Filename}) {
+      HalScalableFont font;
+      assert(font.openFile(path, HalScalableFont::MaxFileBytes, {}, mode));
+      assert(font.probeGlyph(0xF000, 16));
+      const auto* data = font.atSize(16)->data;
+      const auto* glyph = data->dynamicGlyphHandler(data->glyphMissCtx, 0xF000);
+      assert(glyph && glyph->width && glyph->height);
+      assert(data->bitmapHandler(data->glyphMissCtx, glyph));
+    }
+  }
   for (const auto& file : family->files) {
     assert(FontInstaller::validateCpfontFile(file.path.c_str()));
     for (auto mode : {HalScalableFont::FileMode::Auto, HalScalableFont::FileMode::Stream,
@@ -117,9 +134,14 @@ int main(int argc, char** argv) {
       }
     }
   }
-  rejected(cff);
   auto bad = cff;
   std::memcpy(bad.data(), "\0\1\0\0", 4);
+  rejected(bad);  // TrueType version without glyf/loca.
+  bad = cff;
+  retag(bad, "CFF ", "CFF2");
+  rejected(bad);
+  bad = cff;
+  retag(bad, "CFF ", "xxxx");
   rejected(bad);
   bad = valid;
   retag(bad, "glyf", "CFF2");
@@ -157,7 +179,7 @@ int main(int argc, char** argv) {
   assert(FontInstaller::finishUpload("/fonts/Kept/Valid.otf", true));
   assert(Storage.exists("/fonts/Kept/Valid.otf"));
   std::puts(
-      "PASS: real SDK CFF rejection; four styles, four loading modes, three sizes rendered; malformed formats and "
+      "PASS: real SDK CFF rendering; four styles, four loading modes, three sizes rendered; malformed formats and "
       "cleanup");
 #else
   assert(!registry.findFamily("Bitter"));

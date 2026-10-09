@@ -314,8 +314,8 @@ individual global changes. **Delete Book Cache** does not reset these choices.
   - "Bitter"
 
 - **Reader Font Size**: Choose from the sizes available for the selected font
-  and firmware build. ESP32-S3 readers use scalable TTF fonts with every whole
-  point size from **8–22 pt**; see [Scalable TTF Fonts](./scalable-fonts.md).
+  and firmware build. ESP32-S3 readers use scalable fonts with every whole
+  point size from **8–22 pt**; see [Scalable Fonts](./scalable-fonts.md).
 
 - **Reader Line Spacing**: Adjust the line height as a percentage.
 

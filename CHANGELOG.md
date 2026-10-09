@@ -2,7 +2,7 @@
 
 ### Added
 
-- Discover and upload static TrueType-outline `.otf` fonts on scalable-capable PSRAM readers, using the existing font rendering controls. CFF/CFF2 fonts, variable fonts and collections remain unsupported (CrossPoint #3646, #3717).
+- Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).
 - Assign Select Chapter to shortcuts, Quick Actions, or touch gestures to open the chapter list directly in EPUB and XTC books.
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
 - Preview OPDS book descriptions before downloading, with scrollable text on touch and button devices. Long descriptions show a bounded excerpt.

@@ -14,7 +14,7 @@ foreach(mode IN ITEMS scalable c3)
   if(mode STREQUAL scalable)
     target_sources(otf_${mode} PRIVATE ../../lib/ScalableFont/HalScalableFont.cpp ${OTF_SOURCES})
     target_compile_definitions(otf_${mode} PRIVATE CROSSINK_SCALABLE_FONTS=1
-      FREEINK_FONT_ENABLE_AUTOHINT=1 FREEINK_FONT_ENABLE_NATIVE_HINTING=1 FREEINK_FONT_ENABLE_MONOCHROME=1)
+      FREEINK_FONT_ENABLE_AUTOHINT=1 FREEINK_FONT_ENABLE_NATIVE_HINTING=1 FREEINK_FONT_ENABLE_MONOCHROME=1 FREEINK_FONT_ENABLE_CFF=1)
   else()
     target_compile_definitions(otf_${mode} PRIVATE CROSSINK_SCALABLE_FONTS=0)
   endif()

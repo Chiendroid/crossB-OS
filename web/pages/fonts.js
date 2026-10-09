@@ -12,7 +12,7 @@ function formatSize(bytes) {
         const data = await res.json();
         ttfSupported = data.ttfSupported === true;
         document.getElementById('formatHelp').textContent = ttfSupported
-          ? 'Upload .cpfont packs or static TrueType-outline .ttf/.otf fonts (up to 2 MiB per file). CFF/CFF2, variable fonts and collections are unsupported.'
+          ? 'Upload .cpfont packs or static .ttf/.otf fonts (up to 2 MiB per file). Variable fonts and collections are unsupported.'
           : 'Upload .cpfont font packs. Scalable .ttf/.otf fonts require a supported PSRAM device.';
         // Build rows with DOM APIs and textContent so on-device family names
         // (which can contain arbitrary characters) cannot break markup or
@@ -90,7 +90,7 @@ function formatSize(bytes) {
     // Derive family name from a .cpfont filename: take everything before the
     // last '-' or '_' (that separator precedes the size suffix, e.g. Bookerly_12.cpfont).
     function familyFromFilename(name) {
-      if (/\.(ttf|otf)$/i.test(name)) return name.replace(/\.(ttf|otf)$/i, '').replace(/[-_ ]?(Regular|BoldItalic|Bold|Italic)$/i, '');
+      if (/\.(ttf|otf)$/i.test(name)) return name.replace(/\.(ttf|otf)$/i, '').replace(/[-_ ]?(Bold[-_ ]?Italic|Regular|Medium|Bold|Italic)$/i, '');
       const stem = name.replace(/\.cpfont$/i, '');
       const cut = Math.max(stem.lastIndexOf('-'), stem.lastIndexOf('_'));
       return cut > 0 ? stem.slice(0, cut) : stem;

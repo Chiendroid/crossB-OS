@@ -1537,6 +1537,6 @@ a restart before another operation or activation of its new mapping.
 ### Font discovery catalog version 2
 
 The rebuildable `/.crosspoint/font-catalog.bin` index uses version 2 to rescan
-static TrueType-outline `.ttf`/`.otf` candidates and remove unsupported faces
+static TrueType and OpenType CFF `.ttf`/`.otf` candidates and remove unsupported faces
 from older indexes. The binary layout, user font files and EPUB cache format
 are unchanged.

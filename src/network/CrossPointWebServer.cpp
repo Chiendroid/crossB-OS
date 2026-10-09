@@ -2461,7 +2461,7 @@ void CrossPointWebServer::handleFontUploadData() {
       if (fontfiles::isScalable(path.c_str()) &&
           fontUpload.bytesWritten + fontUpload.bufferPos + upload.currentSize > 2 * 1024 * 1024) {
         fontUpload.valid = false;
-        LOG_ERR("WEB", "TrueType-outline font exceeds 2 MiB limit");
+        LOG_ERR("WEB", "Scalable font exceeds 2 MiB limit");
         break;
       }
 #endif

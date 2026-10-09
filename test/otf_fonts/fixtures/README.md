@@ -2,7 +2,7 @@
 
 FontAwesome.otf is the unmodified Font Awesome 4.7.0 OpenType/CFF font from
 Ubuntu's fonts-font-awesome package. Its font license is SIL OFL 1.1;
-see FontAwesome-LICENSE.txt. It is a real CFF rejection fixture.
+see FontAwesome-LICENSE.txt. It is a real OpenType CFF fixture, also copied under a `.ttf` name.
 
 The positive TrueType-outline .otf fixture is materialized by the test from
 lib/EpdFont/scalableFonts/bitter_regular.ttf (and the other three styles),

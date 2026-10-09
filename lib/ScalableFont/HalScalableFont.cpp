@@ -340,7 +340,7 @@ bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size,
                   std::memcpy(dest, bytes + offset, count);
                   return true;
                 }) != truetype::Result::Supported) {
-    LOG_ERR("TTF", "Unsupported or malformed static TrueType data");
+    LOG_ERR("TTF", "Unsupported or malformed static outline data");
     return false;
   }
   fontDataFailure_ = false;
@@ -493,7 +493,7 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
     return false;
   }
   if (inspectFormat(file, size) != truetype::Result::Supported || !file.seekSet(0)) {
-    LOG_ERR("TTF", "Unsupported or malformed static TrueType font: %s", path);
+    LOG_ERR("TTF", "Unsupported or malformed static outline font: %s", path);
     file.close();
     return false;
   }
@@ -724,7 +724,7 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
   const auto format = inspectFormat(file, size);
   if (format != truetype::Result::Supported) {
     if (unavailable) *unavailable = format == truetype::Result::Unavailable;
-    LOG_ERR("TTF", "Unsupported or malformed static TrueType font: %s", path);
+    LOG_ERR("TTF", "Unsupported or malformed static outline font: %s", path);
     file.close();
     return false;
   }

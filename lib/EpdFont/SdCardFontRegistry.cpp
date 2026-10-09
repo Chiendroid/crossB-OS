@@ -20,7 +20,7 @@
 
 namespace {
 std::atomic<uint32_t> indexGeneration{0};
-}
+}  // namespace
 
 // --- SdCardFontFamilyInfo helpers ---
 
@@ -131,7 +131,7 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
     uint8_t size = 0, style = 0;
     if (!SdCardFontRegistry::parseFilename(name, size, style)) {
 #if CROSSINK_SCALABLE_FONTS
-      // A family is either bitmap or scalable. Once the first TrueType-outline font selects the
+      // A family is either bitmap or scalable. Once the first outline face selects the
       // scalable path, continue counting its other unique style files.
       if ((!scalable && count != 0) || !fontfiles::isScalable(name)) continue;
       const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
