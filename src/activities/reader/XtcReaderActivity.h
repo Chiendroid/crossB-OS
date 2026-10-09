@@ -6,12 +6,14 @@
  */
 
 #pragma once
+
 #include <Xtc.h>
 
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "BookLoadingFeedback.h"
 #include "BookReadingStats.h"
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
@@ -102,13 +104,22 @@ class XtcReaderActivity final : public Activity {
   bool executeReaderShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
   bool executeLongPressBackAction();
 
+  BookLoadingFeedback openingFeedback;
+  bool showOpeningFeedback() {
+    if (!openingFeedback.showIfDue(renderer)) return false;
+    pagesUntilFullRefresh = 0;
+    return true;
+  }
+
  public:
   explicit XtcReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Xtc> xtc,
-                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false)
+                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false,
+                             BookLoadingFeedback openingFeedback = {})
       : Activity("XtcReader", renderer, mappedInput),
         xtc(std::move(xtc)),
         pagesUntilFullRefresh(initialRefreshCountdown),
-        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
+        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry),
+        openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

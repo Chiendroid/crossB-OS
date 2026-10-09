@@ -110,6 +110,7 @@ bool streamXtchRenderPass(const Xtc& xtc, const uint32_t pageIndex, const uint16
 
 void XtcReaderActivity::onEnter() {
   Activity::onEnter();
+  showOpeningFeedback();
 
   if (!xtc) {
     return;
@@ -139,8 +140,10 @@ void XtcReaderActivity::onEnter() {
   if (!skipRecentBookUpdateOnEntry) {
     RECENT_BOOKS.addOrUpdateBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
   }
+  showOpeningFeedback();
   SleepCoverAssets::prepareXtc(*xtc);
 
+  showOpeningFeedback();
   // Trigger first update
   requestUpdate();
 }
@@ -1180,6 +1183,7 @@ bool XtcReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWR
 }
 
 void XtcReaderActivity::render(RenderLock&&) {
+  showOpeningFeedback();
   if (!xtc) {
     return;
   }
@@ -1202,11 +1206,13 @@ void XtcReaderActivity::render(RenderLock&&) {
       endOfBookOptions->loadOnce(xtc->getPath());
       endOfBookOptions->render(renderer, mappedInput);
     }
+    openingFeedback.finish();
     renderer.displayBuffer();
     return;
   }
 
   renderPage(pageToRender);
+  openingFeedback.finish();
   pageShownAtMs = millis();
   startDailyReadingInterval();
   if (!queueProgressSave(pageToRender)) {
@@ -1337,6 +1343,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
       return;
     }
     renderOverlays(true);
+    openingFeedback.finish();
 
     if (pagesUntilFullRefresh <= 1) {
       renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
@@ -1400,6 +1407,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     return;
   }
 
+  showOpeningFeedback();
   // Clear screen first
   renderer.clearScreen();
 

@@ -131,3 +131,4 @@ add_test(NAME OptimizerCacheSeedRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_optimizer_cache_seed.py)
 add_test(NAME WifiAutoConnectRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_wifi_auto_connect.py)
+add_subdirectory(book_loading_feedback)

@@ -28,18 +28,6 @@ static bool isImagePreviewFile(const std::string& path) {
   return FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path);
 }
 
-bool ReaderActivity::shouldShowLoadingPopup(const std::string& path) {
-  // Only first-open EPUBs are slow enough to need the popup (they build the
-  // spine/TOC cache). A cached EPUB opens in ~ms, so showing the popup would
-  // just add an extra full e-ink refresh (~3s on X3) before the reader paints
-  // its first page; that page's own refresh is the visible "working" feedback.
-  // Other formats, and EPUBs without a metadata cache yet, keep the popup.
-  if (isXtcFile(path) || isTxtFile(path) || isImagePreviewFile(path)) {
-    return true;
-  }
-  return !Epub::hasCache(path, "/.crosspoint");
-}
-
 int ReaderActivity::initialRefreshCountdown() const {
   if (!allowFastInitialRefresh) return 0;
 
@@ -67,10 +55,12 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   if (uncached) {
     // The popup replaces the restored Quick Resume frame, so the reader must clean it.
     allowFastInitialRefresh = false;
+    openingFeedback.finish();
     GUI.drawPopup(renderer, tr(STR_INDEXING));
   }
   // Keep one settings snapshot for both EPUB preparation and the reader handoff.
   result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
+  if (openingFeedback.showIfDue(renderer)) allowFastInitialRefresh = false;
   // Lend the framebuffer's 48 KB for every EPUB load: even a cached book may
   // rebuild stale/missing CSS and need miniz's ~43 KB streaming workspace. The
   // panel keeps showing its last image, and the next activity redraws fully.
@@ -80,6 +70,7 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
       Epub::XLocationLoadMode::Immediate, true);
   if (loaded) epub->ensureOptimizerImageIndex();
   loan.end();
+  if (loaded && openingFeedback.showIfDue(renderer)) allowFastInitialRefresh = false;
   if (loaded) {
     result.epub = std::move(epub);
     result.failure = Epub::OpenFailure::None;
@@ -156,7 +147,7 @@ void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub,
   const bool skipRecentBookUpdateOnEntry = allowFastInitialRefresh;
   activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(
       renderer, mappedInput, std::move(epub), std::move(readerSettings), initialRefreshCountdown(),
-      cleanImageBaseOnEntry, skipRecentBookUpdateOnEntry));
+      cleanImageBaseOnEntry, skipRecentBookUpdateOnEntry, openingFeedback));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {
@@ -167,14 +158,14 @@ void ReaderActivity::onGoToXtcReader(std::unique_ptr<Xtc> xtc) {
   const auto xtcPath = xtc->getPath();
   currentBookPath = xtcPath;
   activityManager.replaceActivity(std::make_unique<XtcReaderActivity>(
-      renderer, mappedInput, std::move(xtc), initialRefreshCountdown(), allowFastInitialRefresh));
+      renderer, mappedInput, std::move(xtc), initialRefreshCountdown(), allowFastInitialRefresh, openingFeedback));
 }
 
 void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
   const auto txtPath = txt->getPath();
   currentBookPath = txtPath;
   activityManager.replaceActivity(std::make_unique<TxtReaderActivity>(
-      renderer, mappedInput, std::move(txt), initialRefreshCountdown(), allowFastInitialRefresh));
+      renderer, mappedInput, std::move(txt), initialRefreshCountdown(), allowFastInitialRefresh, openingFeedback));
 }
 
 void ReaderActivity::onEnter() {
@@ -189,11 +180,10 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  if (shouldShowLoadingPopup(initialBookPath)) {
-    GUI.drawPopup(renderer, tr(STR_LOADING));
-  }
+  openingFeedback.start(millis());
 
   if (isImagePreviewFile(initialBookPath)) {
+    GUI.drawPopup(renderer, tr(STR_LOADING));
     onGoToBmpViewer(initialBookPath);
     return;
   }
