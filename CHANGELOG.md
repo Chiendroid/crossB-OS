@@ -55,6 +55,7 @@
 - Give the reader spacing and screen-margin sliders more breathing room above the button hints.
 - Measure the top margin in global screen-margin previews from the bottom of the header bar, removing the extra gap.
 - Display the "Sleeping..." toast on sleep.
+- Retry a saved Wi-Fi network found by scanning after the initial automatic connection fails, before asking you to select a network.
 
 ### Changed
 
