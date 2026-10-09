@@ -724,7 +724,12 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
   const auto format = inspectFormat(file, size);
   if (format != truetype::Result::Supported) {
     if (unavailable) *unavailable = format == truetype::Result::Unavailable;
-    LOG_ERR("TTF", "Unsupported or malformed static outline font: %s", path);
+    uint8_t signature[4] = {};
+    const bool signatureRead = file.seekSet(0) && file.read(signature, sizeof(signature)) == sizeof(signature);
+    LOG_ERR("TTF",
+            "Unsupported static outline font: %s (preflight=%u cff=%u size=%u signature=%02X%02X%02X%02X read=%u)",
+            path, unsigned(format), unsigned(truetype::kCffEnabled), unsigned(size), unsigned(signature[0]),
+            unsigned(signature[1]), unsigned(signature[2]), unsigned(signature[3]), unsigned(signatureRead));
     file.close();
     return false;
   }

@@ -1385,7 +1385,7 @@ limits and lifecycle.
 
 ## `/.crosspoint/font-catalog.bin`
 
-### Version 1
+### Versions 1–3
 
 Disposable font metadata cache, shared by reader, settings and web font controls.
 The 24-byte little-endian header contains magic `0x46434931`, version, a 64-bit
@@ -1418,6 +1418,10 @@ the card to the host. Manage Fonts performs a full rescan; alternatively remove
 this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
+
+Version 2 rescans static TrueType-outline `.ttf` and `.otf` files. Version 3
+rescans again so OpenType CFF faces rejected by earlier firmware enter the
+catalog without requiring a manual font refresh. The binary layout is unchanged.
 
 ### Daily reading counters (v1)
 
@@ -1533,10 +1537,3 @@ languages, invalid bounds, uncommitted banks and bad header/payload checksums
 are rejected. Boot selects the highest fully valid generation. Generations do
 not wrap; exhausting u32 rejects a further update. A successful update requires
 a restart before another operation or activation of its new mapping.
-
-### Font discovery catalog version 2
-
-The rebuildable `/.crosspoint/font-catalog.bin` index uses version 2 to rescan
-static TrueType and OpenType CFF `.ttf`/`.otf` candidates and remove unsupported faces
-from older indexes. The binary layout, user font files and EPUB cache format
-are unchanged.
