@@ -85,15 +85,15 @@ characters inside mixed-script titles. Menu labels keep their built-in fonts.
 Select **None** to disable filename fallback. This option is available on
 ESP32-S3 builds with scalable fonts, including Sticky and X4 Pro.
 
-Copy static TrueType `.ttf` files into a family folder such as
+Copy static TrueType-outline `.ttf` or `.otf` files into a family folder such as
 `/.crosspoint/languages/fonts/Noto Sans SC/`. The folder name is the picker label.
 Font metadata identifies the regular and bold faces; filenames are unrestricted.
 A regular face is required, bold is optional, and missing bold glyphs use regular.
 Italic faces and bitmap `.cpfont` packs are not offered. Each family must contain
-at most one regular and one bold face. Variable fonts, OpenType `.otf` files and
-font collections are unsupported. Keep reading fonts in `/fonts` or `/.fonts`.
+at most one regular and one bold face. CFF/CFF2 outlines (common in `.otf`
+files), variable fonts and font collections are unsupported. Keep reading fonts in `/fonts` or `/.fonts`.
 
-Each filename TTF can be up to **32 MiB**. The same face supplies the 8, 10 and
+Each supported filename font can be up to **32 MiB**. The same face supplies the 8, 10 and
 12 point UI sizes. Compact faces can reside in PSRAM; larger faces stream from
 SD with bounded read and glyph caches. First use and newly visible characters
 can take longer than cached redraws. The UI font is independent of the reader

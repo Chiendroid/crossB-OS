@@ -125,7 +125,6 @@ add_test(NAME WebDavGetRegression
 add_test(NAME ImageProbeFramebufferRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_image_probe_framebuffer.py)
 add_subdirectory(language_cache)
-
 add_subdirectory(hyphenation_pack)
 add_test(NAME UploadFailureRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upload_cancellation.py)
@@ -136,3 +135,4 @@ add_test(NAME OptimizerCacheSeedRegression
 add_test(NAME WifiAutoConnectRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_wifi_auto_connect.py)
 add_subdirectory(book_loading_feedback)
+add_subdirectory(otf_fonts)

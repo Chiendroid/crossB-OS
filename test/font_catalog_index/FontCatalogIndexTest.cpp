@@ -19,7 +19,7 @@ int main() {
   put("/.fonts/Bitmap/Bitmap_14.cpfont", "bitmap14");
   put("/fonts/Bitmap/Bitmap_22.cpfont", "shadowed");
   put("/fonts/Other/Other_12.cpfont", "other");
-  put("/.fonts/Vector/Vector-Regular.ttf", "Vector 0");
+  put("/.fonts/Vector/Vector-Regular.OTF", "Vector 0");
   put("/.fonts/Vector/Vector-Bold.ttf", "Vector 1");
   // An empty/invalid hidden family must not hide a valid visible install.
   std::filesystem::create_directories(testRoot + "/.fonts/Fallback");

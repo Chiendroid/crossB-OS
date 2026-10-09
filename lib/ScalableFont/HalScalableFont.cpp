@@ -15,6 +15,7 @@
 #include "FixedArenaAllocator.h"
 #include "FontByteDigest.h"
 #include "ScalableFontSizing.h"
+#include "TrueTypeFormat.h"
 
 namespace {
 SemaphoreHandle_t renderMutex = nullptr;
@@ -287,6 +288,11 @@ Runtime& runtime() {
   static Runtime value;
   return value;
 }
+truetype::Result inspectFormat(HalFile& file, size_t size) {
+  return truetype::inspect(size, [&](size_t offset, uint8_t* bytes, size_t count) {
+    return file.seekSet(offset) && file.read(bytes, count) == static_cast<int>(count);
+  });
+}
 bool validFileSize(const char* path, size_t size, size_t limit = HalScalableFont::MaxFileBytes) {
   if (size >= 12 && size <= limit) return true;
   LOG_ERR("TTF", "Unsupported TTF file size: %s (%u bytes; limit=%u)", path, unsigned(size), unsigned(limit));
@@ -330,7 +336,13 @@ bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size) {
 
 bool HalScalableFont::openMemory(const uint8_t* bytes, size_t size,
                                  const freeink::font::FtFont::RenderOptions& options) {
-  if (!bytes || !size) return false;
+  if (!bytes || truetype::inspect(size, [&](size_t offset, uint8_t* dest, size_t count) {
+                  std::memcpy(dest, bytes + offset, count);
+                  return true;
+                }) != truetype::Result::Supported) {
+    LOG_ERR("TTF", "Unsupported or malformed static TrueType data");
+    return false;
+  }
   fontDataFailure_ = false;
   const auto summary = summarizeFontBytes(bytes, size);
   integrityChecksum_ = summary.checksum;
@@ -477,6 +489,11 @@ bool HalScalableFont::openFile(const char* path, size_t remainingBytes,
   }
   const size_t size = file.size();
   if (!validFileSize(path, size, mode == FileMode::Filename ? MaxFilenameFileBytes : MaxFileBytes)) {
+    file.close();
+    return false;
+  }
+  if (inspectFormat(file, size) != truetype::Result::Supported || !file.seekSet(0)) {
+    LOG_ERR("TTF", "Unsupported or malformed static TrueType font: %s", path);
     file.close();
     return false;
   }
@@ -703,6 +720,14 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
     file.close();
     return false;
   }
+  info = Info{};
+  const auto format = inspectFormat(file, size);
+  if (format != truetype::Result::Supported) {
+    if (unavailable) *unavailable = format == truetype::Result::Unavailable;
+    LOG_ERR("TTF", "Unsupported or malformed static TrueType font: %s", path);
+    file.close();
+    return false;
+  }
   if (!runtime().begin()) {
     file.close();
     return false;
@@ -714,35 +739,6 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
   };
   const auto result =
       freeink::font::FtFont::inspectStream(read, &file, size, details, info.family, sizeof(info.family));
-  info.variable = false;
-  if (result == freeink::font::FtFont::InspectResult::Ok) {
-    // The filename picker needs fixed regular/bold faces. Read SFNT tags
-    // without loading the font bytes or exposing FreeType internals to app code.
-    uint8_t record[16];
-    if (!file.seekSet(0) || file.read(record, 12) != 12) {
-      LOG_ERR("TTF", "Cannot read font table directory: %s", path);
-      file.close();
-      return false;
-    }
-    const unsigned tables = (unsigned(record[4]) << 8) | record[5];
-    if (12u + size_t(tables) * 16u > size) {
-      LOG_ERR("TTF", "Invalid font table directory: %s", path);
-      file.close();
-      if (unavailable) *unavailable = false;
-      return false;
-    }
-    for (unsigned i = 0; i < tables; ++i) {
-      if (file.read(record, sizeof(record)) != sizeof(record)) {
-        LOG_ERR("TTF", "Cannot read font table tag: %s", path);
-        file.close();
-        return false;
-      }
-      if (std::memcmp(record, "fvar", 4) == 0) {
-        info.variable = true;
-        break;
-      }
-    }
-  }
   file.close();
   if (unavailable) *unavailable = result == freeink::font::FtFont::InspectResult::Unavailable;
   if (result != freeink::font::FtFont::InspectResult::Ok) {

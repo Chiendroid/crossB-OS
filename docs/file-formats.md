@@ -1533,3 +1533,10 @@ languages, invalid bounds, uncommitted banks and bad header/payload checksums
 are rejected. Boot selects the highest fully valid generation. Generations do
 not wrap; exhausting u32 rejects a further update. A successful update requires
 a restart before another operation or activation of its new mapping.
+
+### Font discovery catalog version 2
+
+The rebuildable `/.crosspoint/font-catalog.bin` index uses version 2 to rescan
+static TrueType-outline `.ttf`/`.otf` candidates and remove unsupported faces
+from older indexes. The binary layout, user font files and EPUB cache format
+are unchanged.
