@@ -69,7 +69,8 @@ const char* I18n::get(StrId id) const {
     return english(static_cast<uint16_t>(index));
   }
   const uint16_t offset = builtin_.offsets[index];
-  return offset & 0x8000 ? i18n_strings::STRINGS_EN_DATA + (offset & 0x7fff) : builtin_.data + offset;
+  // Reserve one offset for English fallback; localized blobs may use the other 16 bits.
+  return offset == I18N_ENGLISH_FALLBACK_OFFSET ? english(static_cast<uint16_t>(index)) : builtin_.data + offset;
 }
 void I18n::begin(const char* preferredCode, uint64_t generation) {
   if (begun_) return;

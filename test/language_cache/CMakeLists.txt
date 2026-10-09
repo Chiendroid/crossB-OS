@@ -47,6 +47,7 @@ target_compile_options(LanguageSettingsAtomicTest PRIVATE -Wall -Wextra -Werror)
 add_test(NAME LanguageSettingsAtomicTest COMMAND LanguageSettingsAtomicTest)
 add_test(NAME LanguageGeneratorTest COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/generator_test.py ${REPO_ROOT})
 add_test(NAME LanguageBuiltinTest COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/builtin_test.py ${REPO_ROOT})
+add_test(NAME I18nTranslationTest COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_i18n.py)
 
 add_executable(LanguageAllocationTest LanguageAllocationTest.cpp ${REPO_ROOT}/lib/LanguageCache/LanguageCache.cpp)
 add_dependencies(LanguageAllocationTest LanguageTestSchema)
