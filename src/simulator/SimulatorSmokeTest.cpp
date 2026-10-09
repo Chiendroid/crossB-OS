@@ -5038,11 +5038,15 @@ class SimulatorSmokeTest {
         }
         inputCompletionStep = SmokeStep::StatsUploadReturn;
         // Sync actions live in File Transfer. With stats and clippings sync off,
-        // Sync Books is the last row, one step up from the first.
+        // Sync Books is the last Sync Server row, just above the Nearby rows that
+        // end the list.
         activityManager.goToFileTransfer();
         inputScript.push_back(render("File Transfer", 10));
         inputScript.push_back(assertActivity("NetworkModeSelection"));
-        addTap(MappedInputManager::Button::Up);
+        for (int i = 0; i < nearbyFileTransferRows() + 1; ++i) {
+          addTap(MappedInputManager::Button::Up);
+          inputScript.push_back(render("File Transfer row up", 5));
+        }
         inputScript.push_back(render("Sync Books selected", 5));
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(assertActivity("StatsUpload"));
@@ -5094,7 +5098,11 @@ class SimulatorSmokeTest {
         scriptIndex = 0;
         inputCompletionStep = SmokeStep::SyncServerCaptureFileTransfer;
         inputScript.push_back(render("File Transfer", 10));
-        addTap(MappedInputManager::Button::Up);  // last row: Sync Clippings
+        // Sync Clippings sits just above the Nearby rows that end the list.
+        for (int i = 0; i < nearbyFileTransferRows() + 1; ++i) {
+          addTap(MappedInputManager::Button::Up);
+          inputScript.push_back(render("File Transfer row up", 5));
+        }
         inputScript.push_back(render("File Transfer Sync Server rows", 6));
         step = SmokeStep::ReaderInput;
         break;
@@ -5709,6 +5717,9 @@ class SimulatorSmokeTest {
     inputScript.push_back(press(button));
     inputScript.push_back(release(button));
   }
+
+  // File Transfer ends with Receive Nearby Book, plus Nearby Stats Sync when reading stats are tracked.
+  static int nearbyFileTransferRows() { return SETTINGS.shouldTrackReadingStats() ? 2 : 1; }
 
   unsigned statusBarReaderPass = 0;
 

@@ -172,16 +172,16 @@ Download links for files already on the device are available in the web interfac
 
 A **Wi-Fi signal strength indicator** (dBm) is displayed on-screen during joined-network web server sessions.
 
-The same screen also has **Receive File**, which receives a supported
-book or image directly from another nearby CrossInk reader without joining a
-Wi-Fi network. See [Nearby File Transfer](./nearby-file-transfer.md) for the
-complete sender and receiver workflow.
-
 The **Sync Server** section syncs with your sync server account (set up in
 **Settings > System > Sync Server**): **Sync Books** syncs progress, reading
 stats, and clippings for every book, while **Sync Reading Stats** and **Sync
 Clippings** upload only that data. The last two appear when that data is turned
 on under **What to Sync**. See [Reading Stats Sync](./reading-stats-sync.md#ways-to-sync).
+
+Below it, the **Nearby Device** section has **Receive File**, which receives a supported
+book or image directly from another nearby CrossInk reader without joining a
+Wi-Fi network. See [Nearby File Transfer](./nearby-file-transfer.md) for the
+complete sender and receiver workflow.
 
 On X4 Pro, the screen also includes **USB Drive**. This exposes the reader's SD
 card to a computer over USB for direct file management. See the
