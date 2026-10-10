@@ -167,6 +167,10 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
+        if args.c3_font_sizes:
+            env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
+        if args.font_size_book:
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
         env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
@@ -235,7 +239,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the touch clipping checks", file=sys.stderr)
         return 2
 
-    if args.font_family:
+    if args.c3_font_sizes and "Simulator smoke test passed: C3 font sizes" not in proc.stdout:
+        print("Simulator did not complete the C3 font-size checks", file=sys.stderr)
+        return 2
+
+    if args.font_family and not args.c3_font_sizes:
         tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
         reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
         if tab_change < 0 or reader_return < 0 or "Loading file:" not in proc.stdout[tab_change:reader_return]:
@@ -260,6 +268,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
+    parser.add_argument("--c3-font-sizes", action="store_true", help="Check C3 bitmap sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
@@ -283,6 +293,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)
     args = parser.parse_args()
+    if args.c3_font_sizes and args.env not in ("simulator", "simulator-X3"):
+        parser.error("--c3-font-sizes requires a C3 simulator")
+    if args.font_size_book and not args.c3_font_sizes:
+        parser.error("--font-size-book requires --c3-font-sizes")
     if args.language_file and not args.language_installer:
         parser.error("--language-file requires --language-installer")
     return args

@@ -765,6 +765,15 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 89
+
+Complete caches use `89`; suspended partial caches use `0xCA`. The payload is
+unchanged, but C3 EPUB headings and CSS font sizes now use available physical
+bitmap sizes. Both cache types rebuild to pick up the new wrapping and line
+heights. SD reader font identities include the content of the optional sizes
+that fit the memory budget, so a changed size file or a load under tighter
+memory also invalidates previously paginated sections.
+
 ### Version 88
 
 Complete caches use `88`; suspended partial caches use `0xC9`. Both rebuild older caches automatically. The section header adds signed `characterSpacing` (-5..5) immediately after `wordSpacing`. Each TextBlock adds the same signed byte immediately before `initialLetterBytes`, so cached drawing retains the exact spacing used for layout. No additional per-word allocation is needed.

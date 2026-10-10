@@ -3409,7 +3409,11 @@ uint8_t GfxRenderer::getFontPointSize(const int fontId) const {
     if (data && data->sizeFamily) return data->pointSize;
   }
 #else
-  (void)fontId;
+  const auto it = fontMap.find(fontId);
+  if (it != fontMap.end()) {
+    const uint8_t points = it->second.pointSize();
+    return points >= 8 && points <= 44 ? points : 0;
+  }
 #endif
   return 0;
 }
@@ -3428,7 +3432,36 @@ int GfxRenderer::getFontIdForSize(const int fontId, const uint8_t points) const 
     if (data && data->sizeFamily == base->sizeFamily && data->pointSize == points) return font.first;
   }
 #else
-  (void)points;
+  if (!points) return fontId;
+  const auto it = fontMap.find(fontId);
+  if (it == fontMap.end() || !it->second.sizeFamilyId()) return fontId;
+  const auto& base = it->second;
+  if (base.pointSize() < 8 || base.pointSize() > 44) return fontId;
+  int chosenId = fontId;
+  unsigned distance = 256;
+  uint8_t chosenSize = 0;
+  // Shrinking rounds down when possible; growth picks the nearest installed
+  // bitmap (ties grow). No storage I/O or font allocation happens here.
+  bool foundBelow = false;
+  for (const auto& [id, family] : fontMap) {
+    if (family.sizeFamilyId() != base.sizeFamilyId() || !family.pointSize()) continue;
+    const uint8_t size = family.pointSize();
+    if (points < base.pointSize() && size <= points) {
+      if (!foundBelow || size > chosenSize) {
+        chosenId = id;
+        chosenSize = size;
+      }
+      foundBelow = true;
+    } else if (!foundBelow) {
+      const unsigned delta = std::abs(int(size) - int(points));
+      if (delta < distance || (delta == distance && size > chosenSize)) {
+        chosenId = id;
+        chosenSize = size;
+        distance = delta;
+      }
+    }
+  }
+  return chosenId;
 #endif
   return fontId;
 }

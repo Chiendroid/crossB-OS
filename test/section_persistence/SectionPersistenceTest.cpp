@@ -22,8 +22,8 @@
 extern uint32_t testHyphenationIdentity;
 
 namespace {
-constexpr uint8_t kFullVersion = 88;
-constexpr uint8_t kPartialVersion = 0xC9;
+constexpr uint8_t kFullVersion = 89;
+constexpr uint8_t kPartialVersion = 0xCA;
 constexpr uint8_t kPreviousFullVersion = 87;
 constexpr uint8_t kParagraphSpacingFullVersion = 85;
 constexpr uint8_t kBorderSuppressionFullVersion = 84;

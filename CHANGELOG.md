@@ -25,6 +25,7 @@
 - Adjust Character Spacing from -5 to +5 with a live preview in Reader settings and the in-book Reader Font menu.
 - On touch devices, adjust EPUB text selection with draggable handles and use the floating Look Up and Clip toolbar. Clipping remains available without an installed dictionary.
 - Adds batched folder syncing for book progress, reading stats, and clippings when servers support it
+- Render EPUB headings and CSS font sizes on X3/X4 using available bitmap sizes; optional SD sizes stay within a small memory budget and fall back safely when memory is tight.
 
 ### Fixed
 

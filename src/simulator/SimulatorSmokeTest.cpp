@@ -3,6 +3,7 @@
 #include "SimulatorSmokeTest.h"
 
 #include <Epub.h>
+#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <KOReaderCredentialStore.h>
@@ -21,15 +22,14 @@
 #include "OpdsCatalogSmokeTest.h"
 #include "ReadingUploadSmokeTest.h"
 #include "StatsUploadSmokeTest.h"
+#include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
-#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScalableFont.h>
 
 #include <fstream>
 
 #include "FontInstaller.h"
 #include "TtfRenderProfileStore.h"
-#include "util/WordSelectNavigator.h"
 #endif
 #include <AppVersion.h>
 #include <ArduinoJson.h>
@@ -105,6 +105,26 @@ extern MappedInputManager mappedInputManager;
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
   static std::optional<uint32_t> statusAnchor;
+#if !CROSSINK_SCALABLE_FONTS
+  static bool fontReload(EpubReaderActivity& reader) {
+    RenderLock lock;
+    if (!reader.section || reader.section->isBuilding()) return false;
+    const int spine = reader.currentSpineIndex;
+    const auto anchor = reader.section->getVisibleTextOffsetForPage(reader.section->currentPage);
+    // Model a font registration removed by a dictionary/reload handoff. The
+    // reader must reconcile its live section before attempting any prewarm.
+    reader.activeSectionFontId = std::numeric_limits<int>::min();
+    reader.render(std::move(lock));
+    if (!reader.section || reader.currentSpineIndex != spine ||
+        reader.activeSectionFontId != SETTINGS.getReaderFontId())
+      return false;
+    const auto page = reader.section->currentPage;
+    const auto start = reader.section->getVisibleTextOffsetForPage(page);
+    const auto next =
+        page + 1 < reader.section->pageCount ? reader.section->getVisibleTextOffsetForPage(page + 1) : std::nullopt;
+    return !anchor || (start && *start <= *anchor && (!next || *next > *anchor));
+  }
+#endif
   static bool openStatusSettings(EpubReaderActivity& reader) {
     Section* original = nullptr;
     const bool firstEdit = !statusAnchor;
@@ -2562,25 +2582,32 @@ class SimulatorSmokeTest {
     queueStep("Carousel return cache", SmokeStep::CarouselHome, 8);
   }
 
-#if CROSSINK_SCALABLE_FONTS
-  void verifyBlockFontSizes(const int readerFontId) {
+  void verifyBlockFontSizes(const int readerFontId, const char* captureName = "block-font-sizes") {
     RenderLock lock;
     const int baseFont = renderer.getFontIdForSize(readerFontId, 12);
-    if (renderer.getFontPointSize(baseFont) != 12) fail("Missing scalable body size");
+    if (renderer.getFontPointSize(baseFont) != 12) fail("Missing body size");
     for (const uint8_t points : {8, 12, 24, 32, 44}) {
+#if CROSSINK_SCALABLE_FONTS
       if (renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
         fail("Missing scalable content size %u", unsigned(points));
+#else
+      const int chosen = renderer.getFontIdForSize(baseFont, points);
+      if (!renderer.getFontPointSize(chosen)) fail("Bitmap size missing");
+#endif
     }
     const std::string path = "/block-font-smoke.xhtml";
     if (!Storage.writeFile(path.c_str(),
                            "<html><body><h1>Heading Heading Heading Heading Heading</h1>"
-                           "<p style=\"font-size:150%\">Large Large Large</p><p>Body Body Body</p></body></html>"))
+                           "<p style=\"font-size:150%\">Large Large Large</p><p>Body Body Body</p>"
+                           "<p>Body <span style=\"font-size:150%\">Large</span> Body</p>"
+                           "<p style=\"font-size:50%\">Small Small Small</p></body></html>"))
       fail("Cannot write block font fixture");
     Epub book("/block-font-smoke.epub", "/.crosspoint");
     CssParser css("/.crosspoint/block-font-smoke");
     unsigned checked = 0;
+    const int height = std::min(600, renderer.getScreenHeight() - 40);
     ChapterHtmlSlimParser parser(
-        book, path, renderer, baseFont, 1.0f, false, false, 1, 320, 600, false, false, false, 0,
+        book, path, renderer, baseFont, 1.0f, false, false, 1, 320, height, false, false, false, 0,
         [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
           FsFile file;
           if (!Storage.openFileForWrite("SMOKE", "/block-font-page", file) || !page->serialize(file))
@@ -2597,17 +2624,36 @@ class SimulatorSmokeTest {
             const auto& block = *line.getBlock();
             if (!block.wordCount()) continue;
             const char* word = block.wordText(0);
-            const int expected = std::strcmp(word, "Heading") == 0 ? 24 : std::strcmp(word, "Large") == 0 ? 18 : 12;
+            const int requested = std::strcmp(word, "Heading") == 0 ? 24
+                                  : std::strcmp(word, "Large") == 0 ? 18
+                                  : std::strcmp(word, "Small") == 0 ? 8
+                                                                    : 12;
+            const int expected = renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, requested));
+            if (requested > 12 && expected <= 12) fail("Heading/CSS enlargement did not apply");
             const int actualFont = block.resolvedFontId(renderer, baseFont);
             if (block.getBlockStyle().fontSize != expected || renderer.getFontPointSize(actualFont) != expected ||
-                block.getBlockStyle().lineHeight != renderer.getLineHeight(actualFont))
+                block.getBlockStyle().lineHeight < renderer.getLineHeight(actualFont))
               fail("Sized page metrics mismatch: %s", word);
-            if (line.yPos < bottom || line.yPos + block.getBlockStyle().lineHeight > 600)
+            for (uint16_t i = 0; i < block.wordCount(); ++i) {
+              const char* text = block.wordText(i);
+              const int wanted = std::strcmp(text, "Heading") == 0 ? 24
+                                 : std::strcmp(text, "Large") == 0 ? 18
+                                 : std::strcmp(text, "Small") == 0 ? 8
+                                                                   : 12;
+              const int chosen = block.wordFontId(renderer, baseFont, i);
+              if (renderer.getFontPointSize(chosen) !=
+                  renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, wanted)))
+                fail("Inline bitmap size was lost in page cache");
+              if (block.getBlockStyle().lineHeight < renderer.getLineHeight(chosen)) fail("Inline size height clipped");
+            }
+            if (line.yPos < bottom || line.yPos + block.getBlockStyle().lineHeight > height)
               fail("Sized page lines overlap or overflow");
             bottom = line.yPos + block.getBlockStyle().lineHeight;
             ++checked;
           }
-          restored->renderText(renderer, baseFont, 0, 0);
+          renderer.clearScreen();
+          restored->renderText(renderer, baseFont, 20, 20);
+          captureStatusBarScreen(captureName);
         },
         true, "", "", 0, {}, nullptr, &css);
     if (!parser.parseAndBuildPages() || checked < 3) fail("Block font parser smoke failed");
@@ -2626,6 +2672,97 @@ class SimulatorSmokeTest {
     Storage.remove(path.c_str());
     Storage.remove("/block-font-page");
     LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
+  }
+
+#if !CROSSINK_SCALABLE_FONTS
+  void verifyBitmapBook(const int fontId, const char* label) {
+    if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK")) return;
+    RenderLock lock;
+    Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
+    if (!book.load()) fail("Cannot load supplied font-size book");
+    unsigned dropCaps = 0, pages = 0;
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
+      renderer.setOrientation(orientation);
+      auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+      spec.fontId = fontId;
+      spec.embeddedStyle = true;
+      spec.paragraphAlignment = CrossPointSettings::BOOK_STYLE;
+      for (int spine = 0; spine < book.getSpineItemsCount(); ++spine) {
+        Section section(book, spine, renderer, "-font-size-smoke");
+        if (!section.loadSectionFile(spec) && (!section.createSectionFile(spec) || !section.loadSectionFile(spec)))
+          fail("Supplied book section failed: %d", spine);
+        for (uint16_t index = 0; index < section.pageCount; ++index) {
+          section.currentPage = index;
+          auto page = section.loadPageFromSectionFile();
+          if (!page) fail("Supplied book page cache failed: %d/%u", spine, unsigned(index));
+          for (const auto& element : page->elements) {
+            if (element->getTag() == TAG_PageDropCap) {
+              const auto& cap = static_cast<const PageDropCap&>(*element);
+              if (std::strcmp(cap.getText(), "R")) fail("Opening drop cap lost its letter");
+              ++dropCaps;
+            }
+          }
+          renderer.setRenderMode(GfxRenderer::BW);
+          renderer.clearScreen();
+          if (auto* cache = renderer.getFontCacheManager()) {
+            FontCacheManager::PrewarmScope scope(*cache, FontCacheManager::PreparationPolicy::Normal);
+            page->renderText(renderer, fontId, 20, 20);
+            if (!scope.endScanAndPrewarm()) fail("Supplied book page prewarm failed");
+            page->renderText(renderer, fontId, 20, 20);
+          } else {
+            page->renderText(renderer, fontId, 20, 20);
+          }
+          char name[96];
+          std::snprintf(name, sizeof(name), "publisher-%s-o%u-s%d-p%u", label, unsigned(orientation), spine,
+                        unsigned(index));
+          captureStatusBarScreen(name);
+          ++pages;
+        }
+      }
+    }
+    if (dropCaps != 2) fail("Supplied book opening drop cap missing after layout/cache");
+    LOG_INF("SMOKE", "Supplied book %s: %u pages rendered, opening drop cap preserved in both orientations", label,
+            pages);
+  }
+
+  void verifyBitmapFontSizes() {
+    const auto orientation = renderer.getOrientation();
+    for (const int base : {BITTER_12_FONT_ID, LEXENDDECA_12_FONT_ID}) {
+      if (renderer.getFontPointSize(base) != 12) fail("Bitmap body size missing");
+      for (const auto pair : {std::pair<uint8_t, uint8_t>{8, 10}, {11, 10}, {13, 14}, {15, 16}, {44, 16}}) {
+        const int chosen = renderer.getFontIdForSize(base, pair.first);
+        if (renderer.getFontPointSize(chosen) != pair.second) fail("Bitmap size snapping failed");
+      }
+      renderer.setOrientation(GfxRenderer::Portrait);
+      verifyBlockFontSizes(base, base == BITTER_12_FONT_ID ? "c3-bitter" : "c3-lexend");
+      renderer.setOrientation(GfxRenderer::LandscapeClockwise);
+      verifyBlockFontSizes(base, base == BITTER_12_FONT_ID ? "c3-bitter-landscape" : "c3-lexend-landscape");
+      verifyBitmapBook(base, base == BITTER_12_FONT_ID ? "bitter12" : "lexend12");
+      verifyBitmapBook(renderer.getFontIdForSize(base, 16), base == BITTER_12_FONT_ID ? "bitter16" : "lexend16");
+      renderer.setOrientation(orientation);
+    }
+    if (renderer.getFontPointSize(UI_12_FONT_ID) != 0 || renderer.getFontIdForSize(UI_12_FONT_ID, 24) != UI_12_FONT_ID)
+      fail("Reader sizing changed UI fonts");
+    if (const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
+      std::snprintf(SETTINGS.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName), "%s", family);
+      SETTINGS.readerFontPointSize = 12;
+      sdFontSystem.ensureLoaded(renderer);
+      const int original = SETTINGS.getReaderFontId();
+      if (!renderer.isSdCardFont(original)) fail("C3 SD family not loaded");
+      verifyBlockFontSizes(original, "c3-sd");
+      sdFontSystem.releaseLoadedFont(renderer);
+      sdFontSystem.ensureLoaded(renderer);
+      if (SETTINGS.getReaderFontId() != original) fail("C3 SD size identity changed on reload");
+      verifyBlockFontSizes(original, "c3-sd-reloaded");
+      if (renderer.getFontPointSize(renderer.getFontIdForSize(original, 8)) >= 12) fail("C3 SD shrinking unavailable");
+      const auto dictionary = sdFontSystem.activateDictionaryFont(renderer, family, 8);
+      if (!dictionary.usingDictionaryFont || dictionary.fontId == original) fail("C3 dictionary font did not swap");
+      if (sdFontSystem.restoreReaderFont(renderer) != original) fail("C3 dictionary return lost content sizes");
+      verifyBlockFontSizes(original, "c3-sd-dictionary-return");
+      verifyBitmapBook(original, "sd12");
+    }
+    renderer.setOrientation(orientation);
+    LOG_INF("SMOKE", "C3 bitmap size snapping, page cache and selection passed");
   }
 #endif
 
@@ -4351,6 +4488,13 @@ class SimulatorSmokeTest {
           step = SmokeStep::ReaderInput;
           break;
         }
+#if !CROSSINK_SCALABLE_FONTS
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {
+          verifyBitmapFontSizes();
+          LOG_INF("SMOKE", "Simulator smoke test passed: C3 font sizes");
+          std::_Exit(0);
+        }
+#endif
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY")) verifyDictionaryElisions();
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE")) {
           verifyStatusBarFeature();
@@ -5372,6 +5516,11 @@ class SimulatorSmokeTest {
         }
 #endif
         if (!activityManager.isCurrentActivityNamed("EpubReader")) fail("Completion test requires EPUB reader");
+#if !CROSSINK_SCALABLE_FONTS
+        if (!EpubReaderCompletionSmokeTest::fontReload(
+                *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity())))
+          fail("Bitmap font reload lost live section or reading position");
+#endif
         if (!EpubReaderCompletionSmokeTest::run(
                 *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity()))) {
           fail("EPUB completion shortcut regression");
