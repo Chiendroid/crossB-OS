@@ -33,6 +33,7 @@
 #include "network/DownloadFileSwap.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
+#include "util/OpdsFeedError.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
 
@@ -665,12 +666,29 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
+    HttpRequestDiagnostics diagnostics;
     const auto result = HttpDownloader::streamUrl(
         url, [&stream](const uint8_t* data, const size_t len) { return stream.write(data, len) == len; }, nullptr,
-        server.username, server.password, std::move(downloadOptions));
+        server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (result != HttpDownloader::OK) {
       state = BrowserState::ERROR;
-      errorMessage = tr(STR_FETCH_FEED_FAILED);
+      switch (classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR)) {
+        case OpdsFeedError::Unauthorized:
+          errorMessage = tr(STR_FEED_UNAUTHORIZED);
+          break;
+        case OpdsFeedError::Redirected:
+          errorMessage = tr(STR_FEED_REDIRECTED);
+          break;
+        case OpdsFeedError::ServerError:
+          errorMessage = tr(STR_FEED_SERVER_ERROR);
+          break;
+        case OpdsFeedError::Unreachable:
+          errorMessage = tr(STR_FEED_UNREACHABLE);
+          break;
+        default:
+          errorMessage = tr(STR_FETCH_FEED_FAILED);
+          break;
+      }
       requestUpdate();
       return;
     }

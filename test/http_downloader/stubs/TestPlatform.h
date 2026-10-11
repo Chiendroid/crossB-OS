@@ -91,6 +91,7 @@ struct Reply {
   std::string etag = "\"v1\"";
   std::string disposition;
   std::vector<std::string> extraDispositions;
+  bool transportFailureAfterHeaders = false;
 };
 inline std::vector<Reply> replies;
 inline size_t nextReply = 0;
@@ -180,7 +181,7 @@ class SecureHttpClient {
       return reply.status;
     }
     if (!reply.body.empty()) stopped = !write((const uint8_t*)reply.body.data(), reply.body.size());
-    return reply.status;
+    return reply.transportFailureAfterHeaders ? -1 : reply.status;
   }
   int getStatus() { return reply.status; }
   bool hasContentLength() { return reply.length > 0; }

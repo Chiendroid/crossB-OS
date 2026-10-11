@@ -1,5 +1,19 @@
-add_executable(HttpDownloaderTest HttpDownloaderTest.cpp ${REPO_ROOT}/src/network/HttpDownloader.cpp ${REPO_ROOT}/src/util/UrlUtils.cpp)
-target_include_directories(HttpDownloaderTest PRIVATE stubs ${REPO_ROOT}/src ${REPO_ROOT}/src/network ${REPO_ROOT}/src/util)
+find_package(EXPAT REQUIRED)
+add_executable(HttpDownloaderTest
+  HttpDownloaderTest.cpp
+  ${REPO_ROOT}/lib/OpdsParser/OpdsParser.cpp
+  ${REPO_ROOT}/src/network/HttpDownloader.cpp
+  ${REPO_ROOT}/src/util/UrlUtils.cpp
+)
+target_include_directories(HttpDownloaderTest PRIVATE
+  stubs
+  ${REPO_ROOT}/test/opds_parser/stubs
+  ${REPO_ROOT}/lib/OpdsParser
+  ${REPO_ROOT}/lib/XmlParserUtils
+  ${REPO_ROOT}/src
+  ${REPO_ROOT}/src/network
+  ${REPO_ROOT}/src/util
+)
 target_compile_definitions(HttpDownloaderTest PRIVATE SIMULATOR FREEINK_NET_WOLFSSL=1)
-target_link_libraries(HttpDownloaderTest PRIVATE crosspoint_test_common GTest::gtest_main)
+target_link_libraries(HttpDownloaderTest PRIVATE crosspoint_test_common EXPAT::EXPAT GTest::gtest_main)
 gtest_discover_tests(HttpDownloaderTest)
