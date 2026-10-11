@@ -65,6 +65,7 @@
 - Retry a saved Wi-Fi network found by scanning after the initial automatic connection fails, before asking you to select a network.
 - Restore Loading feedback for slow book opens, including cached books, after a 300 ms delay between loading stages; quick opens stay quiet.
 - Smart sync only looks up remote progress under the configured Document Matching method, so a position saved for a different version of the file can no longer move you to the wrong place.
+- Remove unused button-hint space from Progress Sync screens on touch devices, including landscape.
 
 ### Changed
 

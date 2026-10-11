@@ -943,7 +943,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   auto metrics = UITheme::getInstance().getMetrics();
-  Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   const std::string heading = folderSync ? epubPath.substr(epubPath.find_last_of('/') + 1) : tr(STR_SYNC_BOOK);
@@ -1101,7 +1101,7 @@ void KOReaderSyncActivity::loop() {
   }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     returnToSource();
