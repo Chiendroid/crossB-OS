@@ -2,6 +2,7 @@
 #include <GfxRenderer.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
@@ -45,6 +46,29 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
     parser.inlineStyleBuf_ = inlineStyles.data();
     parser.blockStyleBuf_ = blockStyles.data();
     parser.blockStyleCount_ = 1;
+  }
+
+  void expectWordAcrossLayoutThreshold(const std::string& first, const std::string& second) {
+    // Stay just below the byte limit with complete words, then cross it mid-word.
+    const size_t prefixBytes = parser.textRunBytesBeforeLayoutLimit() - 1;
+    std::string prefix;
+    for (size_t remaining = prefixBytes; remaining > 0;) {
+      const size_t count = std::min(remaining, size_t{100});
+      prefix += std::string(count, 'x') + " ";
+      remaining -= count;
+    }
+    ChapterHtmlSlimParser::characterData(&parser, prefix.data(), prefix.size());
+    ASSERT_EQ(parser.currentTextRunBytes, prefixBytes);
+    ChapterHtmlSlimParser::characterData(&parser, first.data(), first.size());
+    EXPECT_EQ(std::string(parser.partWordBuffer, parser.partWordBufferIndex), first);
+    const std::string tail = second + " ";
+    ChapterHtmlSlimParser::characterData(&parser, tail.data(), tail.size());
+    const auto& words = parser.currentTextBlock->words;
+    EXPECT_EQ(std::count(words.begin(), words.end(), first + second), 1);
+    EXPECT_EQ(std::count(words.begin(), words.end(), first), 0);
+    EXPECT_EQ(std::count(words.begin(), words.end(), second), 0);
+    EXPECT_EQ(parser.partWordBufferIndex, 0);
+    EXPECT_FALSE(parser.lowMemoryAbort);
   }
 
   BlockStyle parseParagraph(const char* className) {
@@ -1010,6 +1034,29 @@ TEST_F(ChapterHtmlSlimParserTest, FullyFlushedParagraphResetsSpacingForReusedBlo
   parser.makePages();
   ASSERT_EQ(parser.currentPage->elements.size(), 3u);
   EXPECT_EQ(parser.currentPage->elements.back()->yPos, 56);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, LongParagraphKeepsWordAcrossCallbacksWhole) {
+  expectWordAcrossLayoutThreshold("spli", "tword");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, LongParagraphKeepsCyrillicWordAcrossCallbacksWhole) {
+  expectWordAcrossLayoutThreshold("при", "мер");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, LongParagraphKeepsCombiningMarkWithBaseAcrossCallbacks) {
+  expectWordAcrossLayoutThreshold("क", "िताब");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ReadingAidByteLimitKeepsWordAcrossCallbacksWhole) {
+  parser.focusReadingEnabled = true;
+  expectWordAcrossLayoutThreshold("spli", "tword");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, CombinedReadingAidByteLimitKeepsWordAcrossCallbacksWhole) {
+  parser.focusReadingEnabled = true;
+  parser.guideReadingEnabled = true;
+  expectWordAcrossLayoutThreshold("spli", "tword");
 }
 
 TEST_F(ChapterHtmlSlimParserTest, FragmentAppendChecksBoundBeforeCallbackEnds) {

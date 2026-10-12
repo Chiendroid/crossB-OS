@@ -68,6 +68,7 @@
 - Restore Loading feedback for slow book opens, including cached books, after a 300 ms delay between loading stages; quick opens stay quiet.
 - Smart sync only looks up remote progress under the configured Document Matching method, so a position saved for a different version of the file can no longer move you to the wrong place.
 - Remove unused button-hint space from Progress Sync screens on touch devices, including landscape.
+- Keep words intact across text chunks in long EPUB paragraphs, including non-Latin text and combining marks (#844).
 
 ### Changed
 
