@@ -796,7 +796,6 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_PUBLISHER_PAGE_NUMBERS);
   addSettingByName(readerSettings, allSettings, StrId::STR_DISABLE_TOUCHSCREEN);
   addSettingByName(readerSettings, allSettings, StrId::STR_EMBEDDED_STYLE);
-  addSettingByName(readerSettings, allSettings, StrId::STR_PUBLISHER_FONTS);
   addSettingByName(readerSettings, allSettings, StrId::STR_IMAGES);
   addSettingByName(readerSettings, allSettings, StrId::STR_IMAGE_GRAYSCALE);
   addSettingByName(readerSettings, allSettings, StrId::STR_FOCUS_READING);
@@ -817,9 +816,10 @@ inline std::vector<SettingInfo> buildBookReaderSettingsParentList(const std::vec
 
 inline std::vector<SettingInfo> buildReaderFontSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(10);
+  settings.reserve(11);
   addSettingByName(settings, allSettings, StrId::STR_FONT_FAMILY);
   addSettingByName(settings, allSettings, StrId::STR_FONT_SIZE);
+  addSettingByName(settings, allSettings, StrId::STR_PUBLISHER_FONTS);
   addSettingByName(settings, allSettings, StrId::STR_DICTIONARY_FONT);
   addSettingByName(settings, allSettings, StrId::STR_DICTIONARY_FONT_SIZE);
   addSettingByName(settings, allSettings, StrId::STR_LINE_SPACING);

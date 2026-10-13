@@ -181,6 +181,9 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   ReaderDrawerCatalog catalog{};
   auto& font = catalog[static_cast<size_t>(ReaderDrawerTab::Font)];
   font.add(ReaderDrawerCatalogItem::ReaderFont);
+#if CROSSINK_SCALABLE_FONTS
+  font.add(ReaderDrawerCatalogItem::PublisherFonts);
+#endif
   font.add(ReaderDrawerCatalogItem::DictionaryFont);
   font.add(ReaderDrawerCatalogItem::Spacing);
   font.add(ReaderDrawerCatalogItem::TextAa);
@@ -198,9 +201,6 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   layout.add(ReaderDrawerCatalogItem::ExtraSpacing);
   layout.add(ReaderDrawerCatalogItem::ForceIndents);
   layout.add(ReaderDrawerCatalogItem::EmbeddedStyle);
-#if CROSSINK_SCALABLE_FONTS
-  layout.add(ReaderDrawerCatalogItem::PublisherFonts);
-#endif
 
   auto& more = catalog[static_cast<size_t>(ReaderDrawerTab::More)];
   if (available.hasDictionary) {

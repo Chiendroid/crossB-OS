@@ -2853,39 +2853,71 @@ class SimulatorSmokeTest {
         sleepPageHash != hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize()))
       fail("Publisher sleep page changed when reopening its cache");
     const auto globalRows = buildReaderSettingsParentList(getSettingsList());
-    const auto publisherRow = std::find_if(globalRows.begin(), globalRows.end(), [](const auto& row) {
+    if (std::any_of(globalRows.begin(), globalRows.end(),
+                    [](const auto& row) { return row.valuePtr == &CrossPointSettings::publisherFonts; }))
+      fail("Publisher fonts remained in the global Reader parent menu");
+    const auto fontRows = buildReaderFontSettingsList(getSettingsList());
+    const auto publisherRow = std::find_if(fontRows.begin(), fontRows.end(), [](const auto& row) {
       return row.valuePtr == &CrossPointSettings::publisherFonts;
     });
-    if (publisherRow == globalRows.end()) fail("Global Publisher fonts setting is missing");
-    const int publisherIndex = static_cast<int>(std::distance(globalRows.begin(), publisherRow)) + 1;
+    if (publisherRow == fontRows.end()) fail("Global Publisher fonts setting is missing from Font Options");
+    const int publisherIndex = static_cast<int>(std::distance(fontRows.begin(), publisherRow)) + 1;
+    const std::string savedFamily = SETTINGS.sdFontFamilyName;
+    lock.unlock();  // Opening Font Options takes its own render lock.
     for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
-      renderer.setOrientation(orientation);
-      SETTINGS.publisherFonts = 1;
-      SettingsActivity globalSettings(renderer, mappedInputManager);
-      globalSettings.onEnter();
-      const auto release = [&](MappedInputManager::Button button) {
-        mappedInputManager.simulatorInjectRelease(button);
+      for (const bool useTtf : {false, true}) {
+        const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY");
+        if (useTtf && !family) continue;
+        std::snprintf(SETTINGS.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName), "%s", useTtf ? family : "");
+        renderer.setOrientation(orientation);
+        SETTINGS.publisherFonts = 1;
+        SettingsActivity globalSettings(renderer, mappedInputManager);
+        globalSettings.onEnter();
+        const auto release = [&](MappedInputManager::Button button) {
+          mappedInputManager.simulatorInjectRelease(button);
+          globalSettings.loop();
+          mappedInputManager.simulatorClearInputFrame();
+        };
+        release(MappedInputManager::Button::Confirm);  // Display tab to Reader tab.
+        release(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        release(MappedInputManager::Button::Confirm);  // Reader > Font Options.
+        RenderLock globalLock;
+        globalSettings.render(std::move(globalLock));
+        const int expectedIndex = publisherIndex + (useTtf ? 1 : 0);
+        for (int i = 1; i < expectedIndex; ++i)
+          release(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        if (globalSettings.simulatorCategoryIndex() != 1 || globalSettings.simulatorSelectedIndex() != expectedIndex)
+          fail("Global Publisher fonts row was not reachable in Font Options");
+        globalSettings.render(std::move(globalLock));
+        char globalCapture[72];
+        std::snprintf(globalCapture, sizeof(globalCapture), "publisher-global-ttf-%u-orientation-%u", unsigned(useTtf),
+                      unsigned(orientation));
+        captureStatusBarScreen(globalCapture);
+        release(MappedInputManager::Button::Confirm);
+        if (!globalSettings.simulatorOptionPopupActive()) fail("Global Publisher fonts picker did not open");
+        globalSettings.render(std::move(globalLock));
+        std::snprintf(globalCapture, sizeof(globalCapture), "publisher-global-options-ttf-%u-orientation-%u",
+                      unsigned(useTtf), unsigned(orientation));
+        captureStatusBarScreen(globalCapture);
+        release(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
         globalSettings.loop();
         mappedInputManager.simulatorClearInputFrame();
-      };
-      release(MappedInputManager::Button::Confirm);  // Display tab to Reader tab.
-      for (int i = 0; i < publisherIndex; ++i) release(mappedInputManager.menuButton(MappedInputManager::Button::Down));
-      if (globalSettings.simulatorCategoryIndex() != 1 || globalSettings.simulatorSelectedIndex() != publisherIndex)
-        fail("Global Publisher fonts row was not reachable");
-      globalSettings.render(std::move(lock));
-      char globalCapture[64];
-      std::snprintf(globalCapture, sizeof(globalCapture), "publisher-global-orientation-%u", unsigned(orientation));
-      captureStatusBarScreen(globalCapture);
-      globalSettings.onExit();
+        release(MappedInputManager::Button::Confirm);
+        if (SETTINGS.publisherFonts != 2) fail("Global Publisher fonts picker did not apply All Text");
+        globalSettings.onExit();
+      }
+      std::snprintf(SETTINGS.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName), "%s", savedFamily.c_str());
+      RenderLock menuLock;
       renderer.setOrientation(orientation);
       for (uint8_t mode = 0; mode < 3; ++mode) {
         SETTINGS.publisherFonts = mode;
         ReaderDrawerState state;
-        state.tab = ReaderDrawerTab::Layout;
+        state.tab = ReaderDrawerTab::Font;
         const auto catalog = makeReaderDrawerCatalog({});
         const auto& rows = catalog[static_cast<size_t>(state.tab)];
-        state.selectedIndex = rows.count - 1;
-        state.rootTopIndex[static_cast<size_t>(state.tab)] = state.selectedIndex;
+        state.selectedIndex = 1;
+        state.rootTopIndex[static_cast<size_t>(state.tab)] = 0;
         if (rows.items[state.selectedIndex] != ReaderDrawerCatalogItem::PublisherFonts)
           fail("Publisher menu row missing");
         EpubReaderDrawerActivity editor(renderer, mappedInputManager, {}, nullptr, 0.0f, 0, 0, false, false, false,
@@ -2894,7 +2926,7 @@ class SimulatorSmokeTest {
                                         nullptr, nullptr, state);
         editor.onEnter();
         renderer.clearScreen();
-        editor.render(std::move(lock));
+        editor.render(std::move(menuLock));
         char capture[64];
         std::snprintf(capture, sizeof(capture), "publisher-menu-%u-orientation-%u", unsigned(mode),
                       unsigned(orientation));
@@ -2902,7 +2934,7 @@ class SimulatorSmokeTest {
         mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
         editor.loop();
         mappedInputManager.simulatorClearInputFrame();
-        editor.render(std::move(lock));
+        editor.render(std::move(menuLock));
         if (editor.simulatorState().pane != ReaderDrawerPane::EnumOptions ||
             editor.simulatorState().selectedIndex != mode)
           fail("Publisher menu did not open the current choice");
