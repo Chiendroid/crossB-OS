@@ -172,6 +172,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_size_book:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
+        if args.receive_folder:
+            env["CROSSINK_SIMULATOR_SMOKE_RECEIVE_FOLDER"] = "1"
+        if args.receive_folder_captures:
+            env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.receive_folder_captures).resolve())
         env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
         env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
         if args.context_menu_sync_return:
@@ -261,6 +265,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
     parser.add_argument("--status-bar-feature", action="store_true", help="Check status bar visibility, independent sizes, disk reload and rendered theme/orientation matrix")
     parser.add_argument("--screen-calibration", action="store_true", help="Check screen calibration button/touch editing, save, cancel, reset and rotations")
+    parser.add_argument("--receive-folder", action="store_true", help="Check receive folder selection, navigation and cancellation")
+    parser.add_argument("--receive-folder-captures", help="Directory for receive folder picker framebuffer captures (PGM)")
     parser.add_argument("--status-bar-captures", help="Directory for status bar feature framebuffer captures (PGM)")
     parser.add_argument("--language-file", help="SD language YAML installed before boot for localized smoke checks")
     parser.add_argument("--language-installer", help="Native I18nIntegrationTool built from the same source (required with --language-file)")

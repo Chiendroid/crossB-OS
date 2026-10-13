@@ -1065,6 +1065,11 @@ class SimulatorSmokeTest {
   uint32_t aboutSnapshotUptime = 0;
   unsigned homeThemePass = 0;
   unsigned calibrationPhase = 0;
+  unsigned receiveFolderPhase = 0;
+  unsigned receiveFolderPass = 0;
+  bool receiveFolderReturned = false;
+  bool receiveFolderCancelled = false;
+  std::string receiveFolderResult;
   unsigned calibrationPickerPass = 0;
   int calibrationPickerResult = -1;
   ScreenInsets calibrationExpected;
@@ -3627,6 +3632,100 @@ class SimulatorSmokeTest {
     }
   }
 
+  void tickReceiveFolder() {
+    if (scriptIndex < inputScript.size()) {
+      runReaderInputScript();
+      return;
+    }
+    inputScript.clear();
+    scriptIndex = 0;
+    static constexpr const char* paths[] = {"/", "/receive", "/receive/empty"};
+    switch (receiveFolderPhase++) {
+      case 0: {
+        Storage.mkdir("/receive");
+        Storage.mkdir("/receive/empty");
+        {
+          RenderLock lock;
+          SETTINGS.uiTheme = receiveFolderPass < 8 ? CrossPointSettings::CLASSIC : CrossPointSettings::LYRA;
+          SETTINGS.uiScale =
+              receiveFolderPass % 2 ? CrossPointSettings::UI_SCALE_LARGE : CrossPointSettings::UI_SCALE_SMALL;
+          renderer.setOrientation(static_cast<GfxRenderer::Orientation>((receiveFolderPass / 2) % 4));
+          renderer.setViewableInsets(ScreenInsets{{{32, 32, 32, 32}}});
+          UITheme::getInstance().reload();
+        }
+        receiveFolderReturned = false;
+        receiveFolderResult.clear();
+        const char* path = receiveFolderPass == 18   ? "/receive"
+                           : receiveFolderPass == 19 ? "/receive/empty"
+                           : receiveFolderPass >= 16 ? "/"
+                                                     : paths[receiveFolderPass % 3];
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<FileBrowserActivity>(renderer, mappedInputManager, path,
+                                                  FileBrowserActivity::Mode::PickDirectory),
+            [this](const ActivityResult& result) {
+              receiveFolderReturned = true;
+              receiveFolderCancelled = result.isCancelled;
+              if (const auto* selected = std::get_if<FilePathResult>(&result.data))
+                receiveFolderResult = selected->path;
+            });
+        queueStep("Receive folder picker opened", SmokeStep::Start, 4);
+        break;
+      }
+      case 1: {
+        auto* picker = dynamic_cast<FileBrowserActivity*>(activityManager.simulatorCurrentActivity());
+        if (!picker) fail("Receive folder picker missing");
+        if ((receiveFolderPass == 18 && picker->simulatorFolderPath() == "/receive") ||
+            (receiveFolderPass == 19 && picker->simulatorFolderPath() == "/receive/empty")) {
+          addTap(receiveFolderPass == 18 ? MappedInputManager::Button::Confirm : MappedInputManager::Button::Back);
+          inputScript.push_back(render("Receive folder navigation", 4));
+          receiveFolderPhase = 1;
+          break;
+        }
+        {
+          RenderLock lock;
+          captureStatusBarScreen(("receive-folder-" + std::to_string(receiveFolderPass)).c_str());
+        }
+        if (receiveFolderPass == 16) {
+          addTap(MappedInputManager::Button::Back);
+        } else if (receiveFolderPass == 17 || !mappedInputManager.hasTouchHardware()) {
+          addTap(MappedInputManager::Button::Right);
+        } else {
+#if CROSSINK_APP_CAP_TOUCH
+          const auto button = picker->simulatorDirectorySelectRect();
+          const auto safe = picker->simulatorSafeRect();
+          if (button.width <= 0 || button.height < 44 || button.x < safe.x || button.y < safe.y ||
+              button.right() > safe.right() || button.bottom() > safe.bottom())
+            fail("Receive folder Select button missing or outside safe bounds");
+          const int x = button.x + button.width / 2;
+          const int y = button.y + button.height / 2;
+          inputScript = {touchDown(x, y), touchRelease(x, y)};
+#endif
+        }
+        inputScript.push_back(render("Receive folder picker returned", 4));
+        break;
+      }
+      case 2:
+        if (!receiveFolderReturned || receiveFolderCancelled != (receiveFolderPass == 16))
+          fail("Receive folder selection/cancellation did not return to caller");
+        if (receiveFolderPass != 16 &&
+            receiveFolderResult != (receiveFolderPass == 18   ? "/receive/empty"
+                                    : receiveFolderPass == 19 ? "/receive"
+                                    : receiveFolderPass >= 16 ? "/"
+                                                              : paths[receiveFolderPass % 3]))
+          fail("Receive folder picker returned wrong directory");
+        if (++receiveFolderPass < 20) {
+          receiveFolderPhase = 0;
+          queueStep("Next receive folder layout", SmokeStep::Start, 2);
+        } else {
+          LOG_INF("SMOKE",
+                  "Simulator smoke test passed: receive folder touch selection, empty/root folders, "
+                  "navigation, cancellation and physical selection across themes/scales/rotations");
+          std::_Exit(0);
+        }
+        break;
+    }
+  }
+
   void tickAbout() {
     if (scriptIndex < inputScript.size()) {
       runReaderInputScript();
@@ -4179,6 +4278,10 @@ class SimulatorSmokeTest {
     }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CALIBRATION")) {
       tickCalibration();
+      return;
+    }
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_RECEIVE_FOLDER")) {
+      tickReceiveFolder();
       return;
     }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ABOUT")) {
