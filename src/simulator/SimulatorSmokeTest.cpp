@@ -53,6 +53,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/AlertActivity.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/home/HomeActivity.h"
@@ -85,6 +86,7 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/FrontlightPanelActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "activities/util/OptionSelectionActivity.h"
 #include "components/CompactHeader.h"
 #include "components/HeaderDate.h"
 #include "components/TouchHeaderBackButton.h"
@@ -615,6 +617,72 @@ struct ScreenCalibrationSmokeTest {
     SETTINGS.topReaderStatusBar = topStatus;
     UITheme::getInstance().reload();
     LOG_INF("SMOKE", "Calibration max32 headers/back targets/list geometry: %s", valid ? "passed" : "failed");
+    return valid;
+  }
+  // Every screen must draw the clock/battery bar on the reader's calibrated row, whichever header rect it passes.
+  static bool statusBarOrigin(RenderLock& lock) {
+    const auto original = renderer.getViewableInsets();
+    const auto orientation = renderer.getOrientation();
+    const auto theme = SETTINGS.uiTheme;
+    bool valid = true;
+    for (const auto& insets : {ScreenInsets{{{15, 6, 3, 3}}}, ScreenInsets{{{4, 3, 3, 3}}}}) {
+      renderer.setViewableInsets(insets);
+      for (const auto variant :
+           {CrossPointSettings::CLASSIC, CrossPointSettings::LYRA, CrossPointSettings::ROUNDEDRAFF}) {
+        SETTINGS.uiTheme = variant;
+        UITheme::getInstance().reload();
+        for (const auto rotation :
+             {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise, GfxRenderer::PortraitInverted}) {
+          renderer.setOrientation(rotation);
+          const int expected = UITheme::getTopStatusBarY(renderer);
+          const auto check = [&](const char* screen, Activity& activity) {
+            renderer.setOrientation(rotation);  // activity exits restore the saved orientation
+            BaseTheme::takeLastDisplayStatusBarOriginY();
+            activity.onEnter();
+            activity.render(std::move(lock));
+            const int actual = BaseTheme::takeLastDisplayStatusBarOriginY();
+            activity.onExit();
+            LOG_INF("SMOKE", "Status bar origin screen=%s theme=%d rotation=%d top=%d actual=%d expected=%d", screen,
+                    static_cast<int>(variant), static_cast<int>(rotation), insets.edges[0], actual, expected);
+            if (actual != expected) {
+              LOG_ERR("SMOKE", "Status bar origin mismatch on %s: %d, reader row is %d", screen, actual, expected);
+              valid = false;
+            }
+          };
+          HomeActivity home(renderer, mappedInputManager);
+          check("Home", home);
+          SettingsActivity settings(renderer, mappedInputManager);
+          check("Settings", settings);
+          FileBrowserActivity files(renderer, mappedInputManager, "/books");
+          check("FileBrowser", files);
+          AlertActivity alert(renderer, mappedInputManager);
+          check("Alert", alert);
+          OptionSelectionActivity options(renderer, mappedInputManager, "Options", StrId::STR_SCREEN_CALIBRATION,
+                                          {"A", "B"}, 0);
+          check("OptionSelection", options);
+          if (rotation == GfxRenderer::PortraitInverted) {
+            // Headers pushed below the top hint gutter keep the bar on their own row.
+            renderer.setOrientation(rotation);
+            const Rect header = TouchHeaderBackButton::headerRect(
+                renderer, mappedInputManager, UITheme::getInstance().getScreenSafeArea(renderer, true, false));
+            BaseTheme::takeLastDisplayStatusBarOriginY();
+            GUI.drawHeader(renderer, header, "");
+            const int actual = BaseTheme::takeLastDisplayStatusBarOriginY();
+            const int gutterExpected = header.y + expected - UITheme::getHeaderRect(renderer, 0).y;
+            if (actual != gutterExpected || (UITheme::getTopStatusBarInset(renderer) >= 0 && actual < header.y)) {
+              LOG_ERR("SMOKE", "Status bar origin below hint gutter: %d, expected %d (header %d)", actual,
+                      gutterExpected, header.y);
+              valid = false;
+            }
+          }
+        }
+      }
+    }
+    renderer.setViewableInsets(original);
+    renderer.setOrientation(orientation);
+    SETTINGS.uiTheme = theme;
+    UITheme::getInstance().reload();
+    LOG_INF("SMOKE", "Calibration status bar origin consistency: %s", valid ? "passed" : "failed");
     return valid;
   }
   static bool keyboardAndHints(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
@@ -3498,6 +3566,8 @@ class SimulatorSmokeTest {
         if (!ScreenCalibrationSmokeTest::geometry(
                 lock, [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
           fail("Calibration maximum headers, status, touch targets, or list bounds failed");
+        if (!ScreenCalibrationSmokeTest::statusBarOrigin(lock))
+          fail("Calibration status bar origin differs between screens");
         if (!ScreenCalibrationSmokeTest::keyboardAndHints(
                 lock, [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
           fail("Calibration hints, keyboard edge keys, or font picker resume failed");
