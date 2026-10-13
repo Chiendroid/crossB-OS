@@ -1090,6 +1090,7 @@ inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<
   addSettingByName(settings, allSettings, StrId::STR_TIME_TO_SLEEP);
   addSettingByName(settings, allSettings, StrId::STR_CUSTOM_BOOTSCREEN);
   settings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
+  settings.push_back(SettingInfo::Action(StrId::STR_DOWNLOAD_LANGUAGES, SettingAction::DownloadLanguages));
 #if CROSSINK_SCALABLE_FONTS
   settings.push_back(SettingInfo::Action(StrId::STR_FILENAME_FALLBACK_FONT, SettingAction::FilenameFallbackFont));
 #endif

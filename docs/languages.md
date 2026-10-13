@@ -20,9 +20,44 @@ Good to know:
 - Two files with the same language code are both disabled until you rename or remove one.
 - When you update the firmware, your installed language keeps working. New or changed menu text shows in English until you reapply the file.
 - Translations change menu text only. They do not add fonts for new alphabets, new keyboards, or new writing styles.
+- Reapplying the same compiled language and metadata keeps the current generation without rewriting flash or restarting. Comments and formatting do not trigger an update; changing the order of compiled translation records does.
 
 > [!NOTE]
 > Advanced: the default firmware builds in English only (`custom_i18n_builtin_langs = en`). Custom builds can embed a comma-separated list of languages, or `all`. Installed languages are stored once in the reader's internal flash, so opening menus, reading, and waking never read translation files from the SD card. The prepared copy stays available if you remove the SD file, and it takes priority over a built-in translation of the same code. A matching SD file in the picker reinstalls that language even if it is also built in. Without a valid prepared copy, a built-in translation is used, otherwise English. The version label inside a YAML file is informational and not an exact-version lock. When upgrading from firmware that had built-in translations, your saved language code is kept. On an English-only build you see English until you install the SD file. The device log explains any failed check.
+
+## Download on the reader
+
+Builds configured with a download endpoint provide **Settings > System >
+Device > Download Languages** and online installation in **Hyphenation Packs**.
+Without a configured endpoint, online requests display **Downloads unavailable**.
+
+Download Languages lists every language the firmware supports, each marked
+**Built in** (English), **Current** (the language in use), **Installed** (a copy
+is already on the reader or SD card), or **Install**. Selecting **Install**
+restarts into the Wi-Fi screen, downloads the verified language, and activates
+it with no further choices. Selecting an installed language offers **Activate**,
+**Update**, and **Cancel**; the current language offers **Update** and **Cancel**.
+**Update** downloads again the same way. Activation restarts to Home; your
+reading position is kept, and you reopen the book normally. Cancelling the Wi-Fi
+screen returns Home and changes nothing.
+
+In Hyphenation Packs, packs that are not installed show **Install**. Selecting
+one installs it right away: a pack already on SD is activated directly, otherwise
+the reader restarts into the Wi-Fi screen, downloads the pack, and activates it
+with no further choices. If your SD copy was edited, you are asked once before it
+is replaced. Installed packs show **Installed** and offer **Update**, **Delete**,
+and **Cancel**. Update goes straight to the Wi-Fi download and reinstall. Built-in
+English remains visible without a strike-through and does nothing when selected.
+
+A downloaded source is saved on SD before it is activated. If the SD file was
+edited or is not an official copy, you are asked before it is replaced; the old
+contents are discarded after successful publication. Cancel is selected first. Conflicting same-code files or case-only filename
+collisions must be resolved before downloading. No permanent backup is promised.
+
+Online translations must match the firmware's source and string contract. Updating
+or downgrading firmware may make a catalog incompatible; manual SD files retain
+their existing English-fallback behavior. Menu language and the language selected
+from EPUB metadata remain independent.
 
 ## EPUB hyphenation packs
 
@@ -30,9 +65,9 @@ Hyphenation splits long words across lines. English is always built in. For othe
 
 1. Copy the `.crosspoint/hyphenation` folder from the language ZIP to the root of your SD card.
 2. Open **Settings > Reader > Page Layout > Hyphenation Packs**.
-3. Select a language and choose **Install / Update**. The reader restarts to Home. Reopen your book afterward.
+3. Select the language marked **Activate**, then confirm **Activate**. The reader restarts to Home. Reopen your book afterward.
 
-Choose **Delete** to remove an installed pack (this also restarts). The files on the SD card stay there so you can reinstall later. Editing or deleting a file on the SD card alone changes nothing until you reinstall.
+Choose **Delete** to remove an installed pack (this also restarts). The files on the SD card stay there so you can reinstall later. Editing or deleting a file on the SD card alone changes nothing until you activate it. To replace an installed pack from SD without Wi-Fi, delete the active pack first, then activate its retained SD source.
 
 The initial packs cover French, German, Russian, Spanish, Italian, Polish, Portuguese, Swedish, and Ukrainian. A book uses the pack for its own language, whatever your menu language is. If a book needs a pack you have not installed, the reader offers once per reading session to open the manager. You can cancel and keep reading. Hyphens already in the text still work, and the **Hyphenation** setting still turns automatic hyphenation on or off.
 
@@ -279,3 +314,32 @@ wake repeatedly, exercise RTL controls, then perform OTA and SD firmware updates
 Check that the cached selection survives and both firmware-slot behaviors remain
 intact. Interrupt installation only on a backed-up test device. No EPUB cache
 reset is needed for this feature.
+
+## Maintainer: configure S3 downloads
+
+The asset publisher targets the dedicated `crossink-languages` bucket in
+`us-east-1`. Its production prefix is `v1/`; manual test bundles use a separate
+`testing/<firmware-commit>/` prefix and include their exact endpoint.
+
+For a local firmware build, set `CROSSINK_ASSET_BASE_URL` to the bundle's HTTPS
+base URL (with the final slash) before running the appropriate MCU-specific
+PlatformIO wrapper. This explicitly compiles the endpoint into the binary; it
+does not upload files or modify the bucket. Existing manual SD installation is
+unaffected. Clear any older `ASSET_DOWNLOAD_BASE_URL` override before using this
+variable. Build from the commit recorded by the bundle so the online translation
+source and keyset match.
+
+For example, in the dedicated C3 build worktree with matching source:
+
+```sh
+CROSSINK_ASSET_BASE_URL="https://crossink-languages.s3.us-east-1.amazonaws.com/testing/FULL_COMMIT/" \
+  /Users/home/.local/bin/codex-pio-c3 run -e default -j1
+```
+
+The `Publish language download assets` workflow runs after a release is published,
+not when a draft is created. The reusable `scripts/release_assets.py` and detailed
+manual-upload/Actions setup instructions live in the shared asset repository's
+`docs/s3-language-releases.md`. Configure `LANGUAGE_ASSETS_TOOLS_REF`,
+`LANGUAGE_ASSETS_REVIEW_FILE`, `LANGUAGE_ASSETS_AWS_ROLE_ARN`, and (after endpoint
+qualification) `CROSSINK_ASSET_BASE_URL` in the firmware repository. No AWS or
+GitHub configuration is changed by committing the workflow.

@@ -18,6 +18,7 @@
 #include <exception>
 #include <filesystem>
 
+#include "AssetDownloadSmokeTest.h"
 #include "BookFontSystem.h"
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
@@ -3457,36 +3458,45 @@ class SimulatorSmokeTest {
         inputScript.push_back(render("Hyphenation language list", 5));
         break;
       }
-      case 1:
-        if (!manager || !manager->simulatorOptionDisabled(0)) fail("Built-in English is not protected");
+      case 1: {
+        if (!manager || manager->simulatorOptionDisabled(0)) fail("Built-in English is crossed out");
+        const char* expected = stage ? tr(STR_INSTALLED) : tr(STR_HYPHENATION_INSTALL_ACTION);
+        if (!std::strstr(manager->simulatorLabel(2), expected) ||
+            std::strstr(manager->simulatorLabel(2), tr(STR_ASSET_USE)))
+          fail("Hyphenation row status does not match pack state");
         {
           RenderLock lock;
           captureStatusBarScreen(stage ? "hyphenation-installed" : "hyphenation-sd");
         }
+        // A pack with an SD source installs directly, with no actions menu.
+        if (!stage) setenv("CROSSINK_HYPHENATION_SMOKE_STAGE", "1", 1);
         addTap(MappedInputManager::Button::Confirm);
-        inputScript.push_back(render("Hyphenation actions", 4));
+        inputScript.push_back(render(stage ? "Hyphenation actions" : "Install hyphenation from SD", stage ? 4 : 10));
         break;
+      }
       case 2:
-        if (!manager || manager->simulatorOptionDisabled(1) || manager->simulatorOptionDisabled(2) != (stage == 0))
-          fail("Hyphenation install/delete availability mismatch");
+        if (!stage) fail("Hyphenation install from SD did not restart");
+        if (!manager || std::strcmp(manager->simulatorOptionLabel(0), tr(STR_UPDATE)) ||
+            std::strcmp(manager->simulatorOptionLabel(1), tr(STR_DELETE)) ||
+            std::strcmp(manager->simulatorOptionLabel(2), tr(STR_CANCEL)))
+          fail("Installed pack does not offer Update, Delete and Cancel");
         {
           RenderLock lock;
-          captureStatusBarScreen(stage ? "hyphenation-remove" : "hyphenation-install");
+          captureStatusBarScreen("hyphenation-remove");
         }
         addTap(MappedInputManager::Button::Back);
-        inputScript.push_back(render("Cancel hyphenation change", 4));
+        inputScript.push_back(render("Cancel hyphenation actions", 4));
         break;
       case 3:
-        if (HyphenationPackStore::isInstalled("de") != (stage == 1)) fail("Cancel changed installed hyphenation");
+        if (!HyphenationPackStore::isInstalled("de")) fail("Cancel changed installed hyphenation");
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(render("Reopen hyphenation actions", 4));
         break;
       case 4:
-        setenv("CROSSINK_HYPHENATION_SMOKE_STAGE", stage ? "2" : "1", 1);
-        addTap(MappedInputManager::Button::Down);
-        if (stage == 1) addTap(MappedInputManager::Button::Down);
+        setenv("CROSSINK_HYPHENATION_SMOKE_STAGE", "2", 1);
+        addTap(MappedInputManager::Button::Up);  // Cancel -> Delete
         addTap(MappedInputManager::Button::Confirm);
-        inputScript.push_back(render("Apply hyphenation change", 10));
+        inputScript.push_back(render("Delete hyphenation pack", 10));
         break;
       default:
         fail("Hyphenation operation did not restart");
@@ -4520,6 +4530,7 @@ class SimulatorSmokeTest {
       tickFilenameFont();
       return;
     }
+    if (tickAssetDownloadSmokeTest()) return;
     if (tickOpdsCatalogSmokeTest()) return;
 
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_SUPPORT_EXPORT")) {

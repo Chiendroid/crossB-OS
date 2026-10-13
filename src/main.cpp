@@ -100,6 +100,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -1554,6 +1555,17 @@ void setup() {
       case NetworkBootTarget::FILE_TRANSFER:
         launched = activityManager.resumeFileTransferFromNetworkBoot(snapshotPayload);
         break;
+      case NetworkBootTarget::DOWNLOAD_ASSETS: {
+        if (!AssetDownloadActivity::validBootPayload(snapshotPayload)) break;
+        auto assets = makeUniqueNoThrow<AssetDownloadActivity>(renderer, mappedInputManager, snapshotPayload);
+        if (assets) {
+          activityManager.replaceActivity(std::move(assets));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: asset downloads after minimal boot");
+        }
+        break;
+      }
       case NetworkBootTarget::MANAGE_FONTS: {
         auto fontsActivity = makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager);
         if (fontsActivity) {

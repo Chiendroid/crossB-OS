@@ -22,6 +22,22 @@ class Env(dict):
     def AddBuildMiddleware(self, callback, pattern): self.middleware.append((callback, pattern))
 
 class BuildIdentityTest(unittest.TestCase):
+    def test_download_endpoint_is_explicit_and_validated(self):
+        base = "https://crossink-languages.s3.us-east-1.amazonaws.com/testing/abc/"
+        function = MODULE["inject_asset_endpoint"]
+        env = Env()
+        with patch.dict(os.environ, {"CROSSINK_ASSET_BASE_URL": base}):
+            function(env)
+        self.assertEqual(len(env.defines), 1)
+        self.assertEqual(env.defines[0][0], "ASSET_DOWNLOAD_BASE_URL")
+        self.assertIn(base, env.defines[0][1])
+        for invalid in ("http://host/", "https://host/no-slash", "https://host/../", "https://user:pass@host/", 'https://host/"bad/'):
+            with patch.dict(os.environ, {"CROSSINK_ASSET_BASE_URL": invalid}):
+                with self.assertRaises(ValueError): function(Env())
+        with patch.dict(os.environ, {"CROSSINK_ASSET_BASE_URL": ""}):
+            empty = Env(); function(empty)
+            self.assertEqual(empty.defines, [])
+
     def test_identity_only_changes_one_compile_environment(self):
         function = MODULE["inject_version"]
         globals_ = function.__globals__

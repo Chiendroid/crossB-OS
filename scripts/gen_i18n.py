@@ -581,6 +581,9 @@ def generate_strings_header(
         "",
     ]
 
+    lines.append("extern const char SOURCE_SHA256[];")
+    lines.append("extern const char KEYSET_SHA256[];")
+
     for code in (c for c in languages if builtin is None or c in builtin):
         lines.append(f"extern const char STRINGS_{code}_DATA[];")
         lines.append(f"extern const uint16_t OFFSETS_{code}[];")
@@ -598,6 +601,8 @@ def generate_strings_cpp(
     output_path: str,
     verbose: bool = False,
     builtin: Optional[Set[str]] = None,
+    source_sha256: str = "",
+    keyset_sha256: str = "",
 ) -> None:
     """Generate I18nStrings.cpp."""
     compiled = [c for c in languages if builtin is None or c in builtin]
@@ -653,6 +658,9 @@ def generate_strings_cpp(
     # This leaves the other 16-bit offsets available for localized UTF-8 data.
     lines.append("namespace i18n_strings {")
     lines.append("")
+
+    lines.append(f'const char SOURCE_SHA256[] = "{source_sha256}";')
+    lines.append(f'const char KEYSET_SHA256[] = "{keyset_sha256}";')
 
     en_strings = [translations[key][0] for key in string_keys]
     for lang_idx, code in enumerate(languages):
@@ -945,6 +953,12 @@ def main(
                 print(f"    - {key}")
             print()
 
+        source_bytes = (Path(translations_dir) / "english.yaml").read_bytes()
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        source_keys = [key for key in parse_yaml_file(str(Path(translations_dir) / "english.yaml"))
+                       if key.startswith("STR_")]
+        keyset_sha256 = hashlib.sha256(("\n".join(source_keys) + "\n").encode("utf-8")).hexdigest()
+
         if unused_set and strip_unused:
             string_keys = [k for k in string_keys if k not in unused_set]
             translations = {
@@ -973,6 +987,8 @@ def main(
             str(out / "I18nStrings.cpp"),
             verbose,
             builtin,
+            source_sha256,
+            keyset_sha256,
         )
 
         print()

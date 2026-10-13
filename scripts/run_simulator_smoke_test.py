@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -64,6 +65,137 @@ def prepare_fs(temp_root: Path, book: Path) -> str:
     return f"/books/{book.name}"
 
 
+def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: bool = False) -> Path:
+    """Copy immutable producer bytes into a disposable mock, or make local fixtures.
+
+    Preserve full snapshot paths for companions; keep only one stable catalog
+    per kind at the legacy catalog lookup path. Never mutate
+    the supplied snapshot and never qualify TLS/publication with this transport.
+    """
+    mock = temp_root / "asset-http-mock"
+    mock.mkdir()
+    if snapshot:
+        source = Path(snapshot).resolve()
+        if source.is_file():
+            source = source.parent
+        if not (source / "snapshot.json").is_file():
+            raise ValueError("--asset-snapshot must name one snapshot directory or snapshot.json")
+        kinds = (("hyphenation", "cphyph"),) if hyphenation_only else (("hyphenation", "cphyph"), ("translation", "yaml"))
+        for kind, extension in kinds:
+            catalog_file = source / "catalogs" / "stable" / f"{kind}.json"
+            catalog = json.loads(catalog_file.read_bytes())
+            for entry in catalog["entries"]:
+                if not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) or not 0 < entry["bytes"] <= 262144:
+                    raise ValueError("Snapshot contains an invalid digest or payload size")
+                payload = source / kind / f"{entry['sha256']}.{extension}"
+                data = payload.read_bytes()
+                if len(data) != entry["bytes"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                    raise ValueError(f"Snapshot payload mismatch: {payload}")
+                destination = mock / "snapshots" / catalog["revision"] / kind / payload.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(payload, destination)
+            shutil.copy2(catalog_file, mock / catalog_file.name)
+        # Derive each recipient closure from both exact indexes, including
+        # opaque source archives. This fixture validator never approves a release.
+        indexes = {}
+        for name in ("notices.json", "sources.json"):
+            raw = (source / name).read_bytes()
+            if not 0 < len(raw) <= 2097152:
+                raise ValueError("Companion index exceeds bound")
+            indexes[name] = json.loads(raw)
+        for kind, _ in kinds:
+            catalog = json.loads((mock / f"{kind}.json").read_bytes())
+            prefix = f"snapshots/{catalog['revision']}/"
+            for name in indexes:
+                target = mock / prefix / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / name, target)
+            for entry in catalog["entries"]:
+                references = {}
+                total = 0
+                for index in indexes.values():
+                    files = index[kind][entry["code"]]["files"]
+                    if not 0 < len(files) <= 16:
+                        raise ValueError("Selected companion list exceeds bound")
+                    for ref in files:
+                        path = ref["path"]
+                        if (len(path) > 240 or not path.startswith(prefix + "source/") or
+                            not re.fullmatch(r"[A-Za-z0-9._/-]+", path) or
+                            any(part in ("", ".", "..") for part in path.split("/")) or
+                            not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"]) or
+                            not 0 < ref["bytes"] <= 2097152):
+                            raise ValueError("Invalid companion reference")
+                        total += ref["bytes"]
+                        if path in references and references[path] != ref:
+                            raise ValueError("Conflicting companion references")
+                        references[path] = ref
+                if len(references) > 32 or total > 8388608:
+                    raise ValueError("Companion closure exceeds bound")
+                expected = temp_root / "asset-expected" / f"{kind}-{entry['code']}.txt"
+                expected.parent.mkdir(exist_ok=True)
+                lines = []
+                for path, ref in references.items():
+                    original = source / path.removeprefix(prefix)
+                    data = original.read_bytes()
+                    if len(data) != ref["bytes"] or hashlib.sha256(data).hexdigest() != ref["sha256"]:
+                        raise ValueError(f"Companion mismatch: {original}")
+                    target = mock / path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(original, target)
+                    lines.append(path.removeprefix(prefix))
+                expected.write_text("\n".join([*lines, "notices.json", "sources.json"]) + "\n")
+        print(f"Asset smoke uses copied, unpublished snapshot and complete indexed companions: {source}", flush=True)
+    else:
+        from generate_language_template import generate
+        from package_hyphenation import CODES, pack_bytes
+        generated = generate("simulator-local-fixture")
+        contract = json.loads(generated["language-template.json"])
+        common = {"schema": 1, "channel": "stable", "revision": contract["sourceCommit"],
+                  "format": 1, "requires": 0, "notices": "notices.json", "sources": "sources.json"}
+        hyphenation = dict(common, kind="hyphenation", entries=[])
+        for code in CODES:
+            data = pack_bytes(code)
+            digest = hashlib.sha256(data).hexdigest()
+            (mock / f"{digest}.cphyph").write_bytes(data)
+            hyphenation["entries"].append({"code": code, "bytes": len(data), "sha256": digest})
+        translation = dict(common, kind="translation", source=contract["englishSourceSha256"],
+                           keyset=contract["keysetSha256"], entries=[])
+        for language in contract["languages"]:
+            if "translation" not in language:
+                continue
+            reference = language["translation"]
+            data = generated[reference["filename"]]
+            (mock / f"{reference['sha256']}.yaml").write_bytes(data)
+            translation["entries"].append({"code": language["code"], "name": language["name"],
+                                            "bytes": len(data), "sha256": reference["sha256"]})
+        for kind, catalog in (("hyphenation", hyphenation), ("translation", translation)):
+            (mock / f"{kind}.json").write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")))
+        revision = common["revision"]
+        prefix = f"snapshots/{revision}/"
+        notice = b"TEST-ONLY functional fixture; not a distributable source/license arrangement.\n"
+        path = prefix + "source/TEST-ONLY.txt"
+        target = mock / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(notice)
+        ref = {"path": path, "bytes": len(notice), "sha256": hashlib.sha256(notice).hexdigest()}
+        index = {kind: {entry["code"]: {"files": [ref]} for entry in catalog["entries"]}
+                 for kind, catalog in (("hyphenation", hyphenation), ("translation", translation))}
+        for name in ("notices.json", "sources.json"):
+            (mock / prefix / name).write_text(json.dumps(index, separators=(",", ":")))
+        for kind, catalog in (("hyphenation", hyphenation), ("translation", translation)):
+            extension = "cphyph" if kind == "hyphenation" else "yaml"
+            for entry in catalog["entries"]:
+                payload = mock / f"{entry['sha256']}.{extension}"
+                destination = mock / prefix / kind / payload.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(payload, destination)
+                expected = temp_root / "asset-expected" / f"{kind}-{entry['code']}.txt"
+                expected.parent.mkdir(exist_ok=True)
+                expected.write_text("source/TEST-ONLY.txt\nnotices.json\nsources.json\n")
+        print("Asset smoke uses disposable working-source fixtures, not a release snapshot", flush=True)
+    return mock
+
+
 def run_smoke(args: argparse.Namespace) -> int:
     book = Path(args.book).resolve()
     if not book.exists():
@@ -86,6 +218,30 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.asset_downloads:
+            env["CROSSINK_SIMULATOR_SMOKE_ASSET_DOWNLOADS"] = "1"
+            env["CROSSINK_ASSET_SMOKE_STAGE"] = "0"
+            env.pop("CROSSINK_ASSET_SMOKE_HYPHENATION_ONLY", None)
+            env.pop("CROSSINK_ASSET_SMOKE_EXPECT_TRANSLATION_REJECTION", None)
+            env.pop("CROSSINK_ASSET_SMOKE_EMPTY_CATALOG", None)
+            env.pop("CROSSINK_ASSET_SMOKE_SAVE_FAILURE", None)
+            if args.asset_save_failure:
+                env["CROSSINK_ASSET_SMOKE_SAVE_FAILURE"] = "1"
+            if args.asset_expect_translation_rejection:
+                env["CROSSINK_ASSET_SMOKE_EXPECT_TRANSLATION_REJECTION"] = "1"
+            env["CROSSINK_SIM_HTTP_MOCK_ROOT"] = str(prepare_asset_mock(temp_root, args.asset_snapshot, args.asset_hyphenation_only))
+            if args.asset_empty_catalog:
+                catalog_path = Path(env["CROSSINK_SIM_HTTP_MOCK_ROOT"]) / "hyphenation.json"
+                catalog = json.loads(catalog_path.read_bytes())
+                catalog["entries"] = []
+                catalog_path.write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")))
+                env["CROSSINK_ASSET_SMOKE_EMPTY_CATALOG"] = "1"
+            env["CROSSPOINT_SIM_WIFI_NETWORKS"] = "asset-smoke:-40:open"
+            env["CROSSINK_LANGUAGE_FLASH"] = str(temp_root / "language-flash.bin")
+            if args.asset_hyphenation_only:
+                env["CROSSINK_ASSET_SMOKE_HYPHENATION_ONLY"] = "1"
+            if args.asset_captures:
+                env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.asset_captures).resolve())
         if args.language_file:
             language_path = temp_root / "fs_" / ".crosspoint" / "languages" / "smoke.yaml"
             language_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,7 +373,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            timeout=args.timeout if args.timeout is not None else (180 if args.frontlight_layout or args.about or args.support_export or args.filename_font_family else 120),
+            timeout=args.timeout if args.timeout is not None else (300 if args.asset_downloads else 180 if args.frontlight_layout or args.about or args.support_export or args.filename_font_family else 120),
         )
 
     print(proc.stdout, end="")
@@ -241,6 +397,17 @@ def run_smoke(args: argparse.Namespace) -> int:
 
     if args.clipping_selection and "Simulator smoke test passed: touch clipping actions" not in proc.stdout:
         print("Simulator did not complete the touch clipping checks", file=sys.stderr)
+        return 2
+
+    asset_marker = ("Simulator smoke test passed: empty catalog" if args.asset_empty_catalog else
+                    "Simulator smoke test passed: language save failure" if args.asset_save_failure else
+                    "Simulator smoke test passed: asset downloads")
+    if args.asset_downloads and asset_marker not in proc.stdout:
+        print("Simulator did not complete asset download integration checks", file=sys.stderr)
+        return 2
+
+    if args.asset_expect_translation_rejection and "obsolete translation catalog rejected" not in proc.stdout:
+        print("Simulator did not reject the obsolete translation contract", file=sys.stderr)
         return 2
 
     if args.c3_font_sizes and "Simulator smoke test passed: bitmap font sizes" not in proc.stdout:
@@ -270,11 +437,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--status-bar-captures", help="Directory for status bar feature framebuffer captures (PGM)")
     parser.add_argument("--language-file", help="SD language YAML installed before boot for localized smoke checks")
     parser.add_argument("--language-installer", help="Native I18nIntegrationTool built from the same source (required with --language-file)")
+    parser.add_argument("--asset-downloads", action="store_true", help="Check mocked online catalog/download/explicit activation across minimal-boot reboots (requires test-only .invalid compiled endpoint)")
+    parser.add_argument("--asset-snapshot", help="Producer snapshot directory or snapshot.json copied read-only into disposable HTTP fixtures")
+    parser.add_argument("--asset-hyphenation-only", action="store_true", help="Run first-phase hyphenation without requiring a matching translation contract")
+    parser.add_argument("--asset-expect-translation-rejection", action="store_true", help="Require supplied obsolete translation catalog to be rejected after hyphenation succeeds")
+    parser.add_argument("--asset-empty-catalog", action="store_true", help="Verify a valid empty catalog exits without a transfer or network-error retry")
+    parser.add_argument("--asset-save-failure", action="store_true", help="Force settings publication failure after language preparation and verify explicit recovery restart")
+    parser.add_argument("--asset-captures", help="Directory for asset-download framebuffer captures (PGM)")
     parser.add_argument("--hyphenation", action="store_true", help="Check SD pack management, pinned flash banks, restart activation and deletion")
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
-    parser.add_argument("--bitmap-font-sizes", "--c3-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
@@ -299,6 +473,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)
     args = parser.parse_args()
+    if (args.asset_snapshot or args.asset_hyphenation_only or args.asset_captures or args.asset_expect_translation_rejection or args.asset_empty_catalog or args.asset_save_failure) and not args.asset_downloads:
+        parser.error("asset fixture/capture options require --asset-downloads")
+    if args.asset_expect_translation_rejection and (args.asset_hyphenation_only or not args.asset_snapshot):
+        parser.error("--asset-expect-translation-rejection requires a snapshot and the translation stage")
+    if args.asset_empty_catalog and (args.asset_expect_translation_rejection or args.asset_hyphenation_only):
+        parser.error("--asset-empty-catalog is a separate scenario")
+    if args.asset_save_failure and (args.asset_expect_translation_rejection or args.asset_hyphenation_only or args.asset_empty_catalog):
+        parser.error("--asset-save-failure requires a successful translation stage")
+    if args.asset_downloads and args.hyphenation:
+        parser.error("--asset-downloads and --hyphenation are separate smoke scenarios")
     if args.c3_font_sizes and args.env not in ("simulator", "simulator-X3") and not (args.font_dir and args.font_family):
         parser.error("--bitmap-font-sizes on S3 requires --font-dir and --font-family with cpfont fixtures")
     if args.font_size_book and not args.c3_font_sizes:

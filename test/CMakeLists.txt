@@ -136,3 +136,8 @@ add_test(NAME WifiAutoConnectRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_wifi_auto_connect.py)
 add_subdirectory(book_loading_feedback)
 add_subdirectory(otf_fonts)
+
+add_subdirectory(asset_catalog)
+add_subdirectory(asset_download)
+add_subdirectory(asset_companion_index)
+add_subdirectory(asset_companion_store)
