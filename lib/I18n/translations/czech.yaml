@@ -959,3 +959,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synchronizace knih v této složce..."
 STR_SYNC_TO_REVIEW_FORMAT: "Konflikty k vyřešení: %u"
 STR_FAILED_BOOKS: "Neúspěšné knihy"
 STR_MORE_ITEMS_FORMAT: "+%u další"
+
+STR_PUBLISHER_FONTS: "Písma vydavatele"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorovat písmo těla"
+STR_PUBLISHER_FONTS_ALL: "Veškerý text"

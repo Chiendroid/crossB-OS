@@ -960,3 +960,7 @@ STR_SYNCING_FOLDER_BOOKS: "Sinchronizuojamos šio aplanko knygos..."
 STR_SYNC_TO_REVIEW_FORMAT: "Peržiūrėti konfliktų: %u"
 STR_FAILED_BOOKS: "Nepavykusios knygos"
 STR_MORE_ITEMS_FORMAT: "+%u daugiau"
+
+STR_PUBLISHER_FONTS: "Leidėjo šriftai"
+STR_PUBLISHER_FONTS_ACCENTS: "Nepaisyti pagrindinio šrifto"
+STR_PUBLISHER_FONTS_ALL: "Visas tekstas"

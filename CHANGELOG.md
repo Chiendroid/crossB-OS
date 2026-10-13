@@ -74,6 +74,7 @@
 - Keep KOReader sync positions inside chapter wrappers deep in long chapters by resolving them before Wi-Fi starts; failed mapping no longer uploads a guessed path (#853).
 - Honor EPUB heading and text sizes with installed `.cpfont` sizes on ESP32-S3 readers.
 - Center EPUB chapter ornaments inside publisher-styled figures and preserve their spacing beneath chapter titles.
+- Use fonts embedded in EPUBs on ESP32-S3 readers, with Off, Ignore Body Font, and All Text modes in global Reader settings and each book’s Layout menu.
 
 ### Changed
 

@@ -960,3 +960,7 @@ STR_SYNCING_FOLDER_BOOKS: "Осы қалтадағы кітаптар синхр
 STR_SYNC_TO_REVIEW_FORMAT: "Қаралатын қайшылықтар: %u"
 STR_FAILED_BOOKS: "Сәтсіз кітаптар"
 STR_MORE_ITEMS_FORMAT: "+%u тағы"
+
+STR_PUBLISHER_FONTS: "Баспа қаріптері"
+STR_PUBLISHER_FONTS_ACCENTS: "Негізгі мәтін қарпін елемеу"
+STR_PUBLISHER_FONTS_ALL: "Барлық мәтін"

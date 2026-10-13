@@ -960,3 +960,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synchro des livres de ce dossier..."
 STR_SYNC_TO_REVIEW_FORMAT: "Conflits à examiner : %u"
 STR_FAILED_BOOKS: "Livres en échec"
 STR_MORE_ITEMS_FORMAT: "+%u de plus"
+
+STR_PUBLISHER_FONTS: "Polices de l’éditeur"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorer la police du corps"
+STR_PUBLISHER_FONTS_ALL: "Tout le texte"

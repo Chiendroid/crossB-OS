@@ -960,3 +960,7 @@ STR_SYNCING_FOLDER_BOOKS: "A mappa könyveinek szinkronizálása..."
 STR_SYNC_TO_REVIEW_FORMAT: "Átnézendő ütközések: %u"
 STR_FAILED_BOOKS: "Sikertelen könyvek"
 STR_MORE_ITEMS_FORMAT: "+%u további"
+
+STR_PUBLISHER_FONTS: "Kiadói betűtípusok"
+STR_PUBLISHER_FONTS_ACCENTS: "Törzsszöveg betűtípusának mellőzése"
+STR_PUBLISHER_FONTS_ALL: "Teljes szöveg"

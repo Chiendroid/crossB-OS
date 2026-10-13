@@ -18,6 +18,7 @@
 #include <exception>
 #include <filesystem>
 
+#include "BookFontSystem.h"
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
 #include "ReadingUploadSmokeTest.h"
@@ -2747,6 +2748,178 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
   }
 
+#if CROSSINK_SCALABLE_FONTS
+  void verifyPublisherFonts() {
+    RenderLock lock;
+    const auto savedMode = SETTINGS.publisherFonts;
+    if (savedMode != static_cast<uint8_t>(PublisherFonts::Accents))
+      fail("Fresh settings did not default to Ignore Body Font");
+    Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
+    if (!book.load()) fail("Cannot open publisher-font fixture");
+    const auto settingsPath = book.getCachePath() + "/reader_settings.bin";
+    uint8_t record[160]{};
+    record[0] = 13;
+    record[1] = 1;
+    record[155] = 32;  // Publisher-font override bit 21.
+    record[159] = 2;
+    auto writeSettingsFixture = [&](size_t bytes) {
+      auto file = Storage.open(settingsPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+      if (!file || file.write(record, bytes) != bytes || !file.sync()) fail("Publisher settings fixture write failed");
+      file.close();
+    };
+    writeSettingsFixture(sizeof(record));
+    if (EpubReaderActivity::readBookReaderSettings(book).readerSettings.publisherFonts != 2 ||
+        !EpubReaderActivity::saveBookRenderMode(book.getPath(), 0) ||
+        EpubReaderActivity::readBookReaderSettings(book).readerSettings.publisherFonts != 2)
+      fail("Publisher book setting did not survive reload/save");
+    record[0] = 12;
+    record[155] = 16;  // Existing character-spacing override bit 20.
+    record[158] = 3;
+    SETTINGS.publisherFonts = 1;
+    writeSettingsFixture(sizeof(record) - 1);
+    const auto legacy = EpubReaderActivity::readBookReaderSettings(book);
+    if (legacy.readerSettings.characterSpacing != 3 || legacy.readerSettings.publisherFonts != 1 ||
+        (legacy.readerSettingsOverrideMask & (1U << 21)))
+      fail("Publisher mode broke version 12 inheritance");
+    Storage.remove(settingsPath.c_str());
+    const int readerFont = sdFontSystem.ensureBuiltInReaderFont(renderer);
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
+      renderer.setOrientation(orientation);
+      for (uint8_t mode = 0; mode < 3; ++mode) {
+        SETTINGS.publisherFonts = mode;
+        bookFontSystem.close();
+        for (unsigned i = 0; i < 32; ++i)
+          Storage.remove((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
+        bookFontSystem.ensure(book, renderer, mode != 0);
+        if (bookFontSystem.requestedFaces()) fail("Opening book eagerly requested fonts");
+        auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+        spec.publisherFontSignature = mode ? bookFontSystem.signature() : 0;
+        Section section(book, 0, renderer, "-publisher-smoke");
+        if (!section.createSectionFile(spec) || !section.loadSectionFile(spec)) fail("Publisher layout/cache failed");
+        bool publisherWord = false, readerWord = false;
+        for (uint16_t index = 0; index < section.pageCount; ++index) {
+          section.currentPage = index;
+          auto page = section.loadPageFromSectionFile();
+          if (!page) fail("Publisher page cache failed");
+          for (const auto& element : page->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& text = *static_cast<const PageLine&>(*element).getBlock();
+            for (uint16_t word = 0; word < text.wordCount(); ++word) {
+              const int id = text.wordFontId(renderer, readerFont, word);
+              const uint8_t points = renderer.getFontPointSize(id);
+              const bool isReader = id == renderer.getFontIdForSize(readerFont, points);
+              publisherWord |= !isReader;
+              readerWord |= isReader;
+            }
+          }
+          renderer.setRenderMode(GfxRenderer::BW);
+          renderer.clearScreen();
+          page->renderText(renderer, readerFont, 20, 20);
+          char capture[72];
+          std::snprintf(capture, sizeof(capture), "publisher-mode-%u-orientation-%u-page-%u", unsigned(mode),
+                        unsigned(orientation), unsigned(index));
+          captureStatusBarScreen(capture);
+        }
+        if (mode == 0 && (publisherWord || !readerWord)) fail("Off changed the reader font");
+        if (mode == 1 && (!publisherWord || !readerWord)) fail("Ignore Body Font did not retain the reader body font");
+        if (mode == 2 && (!publisherWord || readerWord)) fail("All Text did not use publisher fonts");
+        if (mode == 1 && Storage.exists((book.getCachePath() + "/publisher-font-0").c_str()))
+          fail("Ignore Body Font extracted the ignored body face");
+        const uint32_t requested = bookFontSystem.requestedFaces();
+        bookFontSystem.close();
+        bookFontSystem.ensure(book, renderer, mode != 0);
+        if (bookFontSystem.requestedFaces() || !section.loadSectionFile(spec) ||
+            bookFontSystem.requestedFaces() != requested)
+          fail("Publisher cache did not restore its demanded families");
+        auto changed = spec;
+        changed.publisherFontSignature ^= 1;
+        if (section.loadSectionFile(changed)) fail("Publisher font identity did not invalidate section cache");
+      }
+    }
+    bookFontSystem.close();
+    SETTINGS.publisherFonts = 1;
+    for (unsigned i = 0; i < 32; ++i)
+      Storage.remove((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
+    if (!EpubReaderActivity::drawCurrentPageToBuffer(book.getPath(), renderer))
+      fail("Publisher sleep-page reconstruction failed");
+    bool extracted = false;
+    for (unsigned i = 1; i < 32; ++i)
+      extracted |= Storage.exists((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
+    if (!extracted || bookFontSystem.signature() || bookFontSystem.requestedFaces())
+      fail("Sleep reconstruction did not load and release publisher fonts");
+    const auto sleepPageHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+    if (!EpubReaderActivity::drawCurrentPageToBuffer(book.getPath(), renderer) ||
+        sleepPageHash != hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize()))
+      fail("Publisher sleep page changed when reopening its cache");
+    const auto globalRows = buildReaderSettingsParentList(getSettingsList());
+    const auto publisherRow = std::find_if(globalRows.begin(), globalRows.end(), [](const auto& row) {
+      return row.valuePtr == &CrossPointSettings::publisherFonts;
+    });
+    if (publisherRow == globalRows.end()) fail("Global Publisher fonts setting is missing");
+    const int publisherIndex = static_cast<int>(std::distance(globalRows.begin(), publisherRow)) + 1;
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
+      renderer.setOrientation(orientation);
+      SETTINGS.publisherFonts = 1;
+      SettingsActivity globalSettings(renderer, mappedInputManager);
+      globalSettings.onEnter();
+      const auto release = [&](MappedInputManager::Button button) {
+        mappedInputManager.simulatorInjectRelease(button);
+        globalSettings.loop();
+        mappedInputManager.simulatorClearInputFrame();
+      };
+      release(MappedInputManager::Button::Confirm);  // Display tab to Reader tab.
+      for (int i = 0; i < publisherIndex; ++i) release(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+      if (globalSettings.simulatorCategoryIndex() != 1 || globalSettings.simulatorSelectedIndex() != publisherIndex)
+        fail("Global Publisher fonts row was not reachable");
+      globalSettings.render(std::move(lock));
+      char globalCapture[64];
+      std::snprintf(globalCapture, sizeof(globalCapture), "publisher-global-orientation-%u", unsigned(orientation));
+      captureStatusBarScreen(globalCapture);
+      globalSettings.onExit();
+      renderer.setOrientation(orientation);
+      for (uint8_t mode = 0; mode < 3; ++mode) {
+        SETTINGS.publisherFonts = mode;
+        ReaderDrawerState state;
+        state.tab = ReaderDrawerTab::Layout;
+        const auto catalog = makeReaderDrawerCatalog({});
+        const auto& rows = catalog[static_cast<size_t>(state.tab)];
+        state.selectedIndex = rows.count - 1;
+        state.rootTopIndex[static_cast<size_t>(state.tab)] = state.selectedIndex;
+        if (rows.items[state.selectedIndex] != ReaderDrawerCatalogItem::PublisherFonts)
+          fail("Publisher menu row missing");
+        EpubReaderDrawerActivity editor(renderer, mappedInputManager, {}, nullptr, 0.0f, 0, 0, false, false, false,
+                                        false, false, false, false, false, true, true, 0, 0, 5, false, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, false,
+                                        nullptr, nullptr, state);
+        editor.onEnter();
+        renderer.clearScreen();
+        editor.render(std::move(lock));
+        char capture[64];
+        std::snprintf(capture, sizeof(capture), "publisher-menu-%u-orientation-%u", unsigned(mode),
+                      unsigned(orientation));
+        captureStatusBarScreen(capture);
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
+        editor.loop();
+        mappedInputManager.simulatorClearInputFrame();
+        editor.render(std::move(lock));
+        if (editor.simulatorState().pane != ReaderDrawerPane::EnumOptions ||
+            editor.simulatorState().selectedIndex != mode)
+          fail("Publisher menu did not open the current choice");
+        std::snprintf(capture, sizeof(capture), "publisher-options-%u-orientation-%u", unsigned(mode),
+                      unsigned(orientation));
+        captureStatusBarScreen(capture);
+        editor.onExit();
+      }
+    }
+    bookFontSystem.close();
+    if (renderer.resolveBookFont(readerFont, CssParser::hashFontFamily("Publisher Body")) != readerFont)
+      fail("Publisher fonts survived close");
+    SETTINGS.publisherFonts = savedMode;
+    renderer.setOrientation(GfxRenderer::Portrait);
+    LOG_INF("SMOKE", "Publisher fonts: modes, orientations, cache identity and cleanup passed");
+  }
+#endif
+
   void verifyBitmapBook(const int fontId, const char* label) {
     if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK")) return;
     RenderLock lock;
@@ -4668,6 +4841,13 @@ class SimulatorSmokeTest {
           step = SmokeStep::ReaderInput;
           break;
         }
+#if CROSSINK_SCALABLE_FONTS
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_FONTS")) {
+          verifyPublisherFonts();
+          LOG_INF("SMOKE", "Simulator smoke test passed: publisher fonts");
+          std::_Exit(0);
+        }
+#endif
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {
           verifyBitmapFontSizes();
           LOG_INF("SMOKE", "Simulator smoke test passed: bitmap font sizes");

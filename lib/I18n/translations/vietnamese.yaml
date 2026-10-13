@@ -964,3 +964,7 @@ STR_SYNCING_FOLDER_BOOKS: "Đang đồng bộ sách trong thư mục này..."
 STR_SYNC_TO_REVIEW_FORMAT: "Xung đột cần xem: %u"
 STR_FAILED_BOOKS: "Sách bị lỗi"
 STR_MORE_ITEMS_FORMAT: "+%u nữa"
+
+STR_PUBLISHER_FONTS: "Phông của nhà xuất bản"
+STR_PUBLISHER_FONTS_ACCENTS: "Bỏ qua phông chữ thân bài"
+STR_PUBLISHER_FONTS_ALL: "Toàn bộ văn bản"

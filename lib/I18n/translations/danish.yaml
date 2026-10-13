@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synkroniserer bøger i denne mappe..."
 STR_SYNC_TO_REVIEW_FORMAT: "Konflikter at gennemgå: %u"
 STR_FAILED_BOOKS: "Mislykkede bøger"
 STR_MORE_ITEMS_FORMAT: "+%u flere"
+
+STR_PUBLISHER_FONTS: "Forlagets skrifttyper"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorer brødtekstskrift"
+STR_PUBLISHER_FONTS_ALL: "Al tekst"

@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Boeken in deze map synchroniseren..."
 STR_SYNC_TO_REVIEW_FORMAT: "Conflicten om te bekijken: %u"
 STR_FAILED_BOOKS: "Mislukte boeken"
 STR_MORE_ITEMS_FORMAT: "+%u meer"
+
+STR_PUBLISHER_FONTS: "Uitgeverslettertypen"
+STR_PUBLISHER_FONTS_ACCENTS: "Negeer hoofdtekstlettertype"
+STR_PUBLISHER_FONTS_ALL: "Alle tekst"

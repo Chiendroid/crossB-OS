@@ -969,3 +969,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synchronizácia kníh v tomto priečinku..."
 STR_SYNC_TO_REVIEW_FORMAT: "Konflikty na kontrolu: %u"
 STR_FAILED_BOOKS: "Neúspešné knihy"
 STR_MORE_ITEMS_FORMAT: "+%u ďalšie"
+
+STR_PUBLISHER_FONTS: "Písma vydavateľa"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorovať písmo tela"
+STR_PUBLISHER_FONTS_ALL: "Všetok text"

@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synchronizowanie książek w tym folderze..."
 STR_SYNC_TO_REVIEW_FORMAT: "Konflikty do przejrzenia: %u"
 STR_FAILED_BOOKS: "Nieudane książki"
 STR_MORE_ITEMS_FORMAT: "+%u więcej"
+
+STR_PUBLISHER_FONTS: "Czcionki wydawcy"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoruj czcionkę treści"
+STR_PUBLISHER_FONTS_ALL: "Cały tekst"

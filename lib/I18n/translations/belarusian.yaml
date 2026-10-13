@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Сінхранізацыя кніг у гэтай п�
 STR_SYNC_TO_REVIEW_FORMAT: "Канфлікты для прагляду: %u"
 STR_FAILED_BOOKS: "Няўдалыя кнігі"
 STR_MORE_ITEMS_FORMAT: "+%u яшчэ"
+
+STR_PUBLISHER_FONTS: "Шрыфты выдаўца"
+STR_PUBLISHER_FONTS_ACCENTS: "Ігнараваць асноўны шрыфт"
+STR_PUBLISHER_FONTS_ALL: "Увесь тэкст"

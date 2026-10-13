@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synkronoidaan tämän kansion kirjoja..."
 STR_SYNC_TO_REVIEW_FORMAT: "Tarkistettavat ristiriidat: %u"
 STR_FAILED_BOOKS: "Epäonnistuneet kirjat"
 STR_MORE_ITEMS_FORMAT: "+%u lisää"
+
+STR_PUBLISHER_FONTS: "Kustantajan fontit"
+STR_PUBLISHER_FONTS_ACCENTS: "Ohita leipätekstin fontti"
+STR_PUBLISHER_FONTS_ALL: "Kaikki teksti"

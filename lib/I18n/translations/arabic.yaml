@@ -959,3 +959,7 @@ STR_SYNCING_FOLDER_BOOKS: "جارٍ مزامنة الكتب في هذا المج
 STR_SYNC_TO_REVIEW_FORMAT: "تعارضات للمراجعة: %u"
 STR_FAILED_BOOKS: "كتب فشلت"
 STR_MORE_ITEMS_FORMAT: "+%u أخرى"
+
+STR_PUBLISHER_FONTS: "خطوط الناشر"
+STR_PUBLISHER_FONTS_ACCENTS: "تجاهل خط المتن"
+STR_PUBLISHER_FONTS_ALL: "كل النص"

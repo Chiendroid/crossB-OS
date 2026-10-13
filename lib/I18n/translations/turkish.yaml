@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Bu klasördeki kitaplar eşitleniyor..."
 STR_SYNC_TO_REVIEW_FORMAT: "İncelenecek çakışmalar: %u"
 STR_FAILED_BOOKS: "Başarısız kitaplar"
 STR_MORE_ITEMS_FORMAT: "+%u daha"
+
+STR_PUBLISHER_FONTS: "Yayınevi yazı tipleri"
+STR_PUBLISHER_FONTS_ACCENTS: "Gövde yazı tipini yok say"
+STR_PUBLISHER_FONTS_ALL: "Tüm metin"

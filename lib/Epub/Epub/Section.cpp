@@ -42,17 +42,17 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v89: C3 bitmap heading/CSS sizes change layout and cached font identities.
 // v90: S3 bitmap heading/CSS sizes now participate in layout.
 // v91: Figure containers apply publisher alignment and spacing to chapter ornaments.
-constexpr uint8_t SECTION_FILE_VERSION = 91;
+constexpr uint8_t SECTION_FILE_VERSION = 93;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xCC;
-constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
-                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                 sizeof(bool) + sizeof(uint32_t) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) +
-                                 sizeof(bool) + sizeof(uint8_t) + sizeof(int8_t) + sizeof(uint8_t) + sizeof(uint16_t) +
-                                 sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-                                 sizeof(uint32_t) + sizeof(uint32_t);
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xCE;
+constexpr uint32_t HEADER_SIZE =
+    4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
+    sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
+    sizeof(uint32_t) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(int8_t) +
+    sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+    sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 // One staging buffer per build (not per page) turns a page's hundreds of 1-4
 // byte field writes into a handful of SD writes. Larger fields (a long line's
@@ -144,6 +144,11 @@ Section::Section(Epub& epub, const int spineIndex, GfxRenderer& renderer, const 
 Section::~Section() { suspendBuild(); }
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
+  if (publisherFontsEnabled_) {
+    publisherFontFaces_ = renderer.bookFontUsage();
+    publisherLoadedFaces_ = renderer.bookFontLoaded();
+    publisherFaceSignature_ = renderer.bookFontSignature(publisherFontFaces_);
+  }
   if (!ensureBuildFileOpen()) {
     LOG_ERR("SCT", "File not open for writing page %d", builtPageCount_);
     return 0;
@@ -217,20 +222,31 @@ void Section::releaseBuildFile() {
   }
 }
 
+bool Section::writePublisherFontState() {
+  return file.seek(HEADER_SIZE - sizeof(uint32_t) * 9 - sizeof(pageCount)) &&
+         serialization::tryWritePod(file, publisherFontFaces_) &&
+         serialization::tryWritePod(file, publisherFaceSignature_) &&
+         serialization::tryWritePod(file, publisherLoadedFaces_);
+}
+
 bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
+  baseLayoutSignature_ = readerRenderSpecSignature(spec);
+  publisherFontsEnabled_ = spec.publisherFonts != PublisherFonts::Off;
+  publisherFontFaces_ = publisherFaceSignature_ = publisherLoadedFaces_ = 0;
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return false;
   }
-  static_assert(HEADER_SIZE ==
-                    sizeof(SECTION_CACHE_MAGIC) + sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) +
-                        sizeof(spec.lineCompression) + sizeof(spec.extraParagraphSpacing) +
-                        sizeof(spec.forceParagraphIndents) + sizeof(spec.paragraphAlignment) +
-                        sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) + sizeof(spec.hyphenationEnabled) +
-                        sizeof(uint32_t) + sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) +
-                        sizeof(spec.focusReadingEnabled) + sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) +
-                        sizeof(spec.characterSpacing) + sizeof(uint8_t) + sizeof(pageCount) + sizeof(uint32_t) +
-                        sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
+  static_assert(HEADER_SIZE == 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) +
+                                   sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) + sizeof(spec.lineCompression) +
+                                   sizeof(spec.extraParagraphSpacing) + sizeof(spec.forceParagraphIndents) +
+                                   sizeof(spec.paragraphAlignment) + sizeof(spec.viewportWidth) +
+                                   sizeof(spec.viewportHeight) + sizeof(spec.hyphenationEnabled) + sizeof(uint32_t) +
+                                   sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) +
+                                   sizeof(spec.focusReadingEnabled) + sizeof(spec.guideReadingEnabled) +
+                                   sizeof(spec.wordSpacing) + sizeof(spec.characterSpacing) + sizeof(uint8_t) +
+                                   sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   return serialization::tryWritePod(file, SECTION_CACHE_MAGIC) &&
          serialization::tryWritePod(file, SECTION_FILE_VERSION) && serialization::tryWritePod(file, spec.fontId) &&
@@ -250,6 +266,11 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, spec.wordSpacing) &&
          serialization::tryWritePod(file, spec.characterSpacing) &&
          serialization::tryWritePod(file, static_cast<uint8_t>(spec.renderMode)) &&
+         serialization::tryWritePod(file, spec.publisherFonts) &&
+         serialization::tryWritePod(file, spec.publisherFontSignature) &&
+         serialization::tryWritePod(file, publisherFontFaces_) &&
+         serialization::tryWritePod(file, publisherFaceSignature_) &&
+         serialization::tryWritePod(file, publisherLoadedFaces_) &&
          serialization::tryWritePod(file,
                                     pageCount) &&  // Placeholder for page count (will be initially 0, patched later)
          serialization::tryWritePod(file, static_cast<uint32_t>(0)) &&  // Protected image units (patched later)
@@ -316,6 +337,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     uint8_t fileWordSpacing;
     int8_t fileCharacterSpacing;
     uint8_t fileRenderMode;
+    PublisherFonts filePublisherFonts;
+    uint32_t filePublisherFontSignature;
     if (!serialization::tryReadPod(file, fileFontId) || !serialization::tryReadPod(file, fileLineCompression) ||
         !serialization::tryReadPod(file, fileExtraParagraphSpacing) ||
         !serialization::tryReadPod(file, fileForceParagraphIndents) ||
@@ -327,7 +350,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         !serialization::tryReadPod(file, fileFocusReadingEnabled) ||
         !serialization::tryReadPod(file, fileGuideReadingEnabled) ||
         !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileCharacterSpacing) ||
-        !serialization::tryReadPod(file, fileRenderMode)) {
+        !serialization::tryReadPod(file, fileRenderMode) || !serialization::tryReadPod(file, filePublisherFonts) ||
+        !serialization::tryReadPod(file, filePublisherFontSignature)) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: truncated section header");
       clearCache();
@@ -343,13 +367,29 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.embeddedStyle != fileEmbeddedStyle || spec.imageRendering != fileImageRendering ||
         spec.focusReadingEnabled != fileFocusReadingEnabled || spec.guideReadingEnabled != fileGuideReadingEnabled ||
         spec.wordSpacing != fileWordSpacing || spec.characterSpacing != fileCharacterSpacing ||
-        static_cast<uint8_t>(spec.renderMode) != fileRenderMode) {
+        static_cast<uint8_t>(spec.renderMode) != fileRenderMode || spec.publisherFonts != filePublisherFonts ||
+        spec.publisherFontSignature != filePublisherFontSignature) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();
       return false;
     }
   }
+
+  uint32_t requiredFaces = 0, faceSignature = 0, loadedFaces = 0;
+  if (!serialization::tryReadPod(file, requiredFaces) || !serialization::tryReadPod(file, faceSignature) ||
+      !serialization::tryReadPod(file, loadedFaces) ||
+      !renderer.restoreBookFonts(requiredFaces, loadedFaces, faceSignature)) {
+    file.close();
+    LOG_ERR("SCT", "Publisher font availability changed");
+    clearCache();
+    return false;
+  }
+
+  baseLayoutSignature_ = readerRenderSpecSignature(spec);
+  publisherFontFaces_ = requiredFaces;
+  publisherFaceSignature_ = faceSignature;
+  publisherLoadedFaces_ = loadedFaces;
 
   if (!serialization::tryReadPod(file, pageCount)) {
     file.close();
@@ -675,6 +715,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   if (cancelBuild()) {
     cancelled = true;
   } else {
+    visitor.setPublisherFonts(spec.publisherFonts);
     success = visitor.beginParse();
   }
   while (success && !cancelled) {
@@ -763,8 +804,8 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   }
 
   // Patch header with final pageCount and all cache lookup-table offsets.
-  if (!file.seek(HEADER_SIZE - sizeof(uint32_t) * 6 - sizeof(pageCount)) ||
-      !serialization::tryWritePod(file, pageCount) || !serialization::tryWritePod(file, protectedImageUnits_) ||
+  if (!writePublisherFontState() || !serialization::tryWritePod(file, pageCount) ||
+      !serialization::tryWritePod(file, protectedImageUnits_) ||
       !serialization::tryWritePod(file, pageIndexOffsets.page) ||
       !serialization::tryWritePod(file, pageIndexOffsets.anchorMap) ||
       !serialization::tryWritePod(file, pageIndexOffsets.paragraph) ||
@@ -1008,6 +1049,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   build_ = std::move(ctx);
+  build_->parser->setPublisherFonts(spec.publisherFonts);
   if (!build_->parser->beginParse()) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1194,8 +1236,8 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
   }
 
   // Patch header with the built page count and section offsets...
-  if (!file.seek(HEADER_SIZE - sizeof(uint32_t) * 6 - sizeof(builtPageCount_)) ||
-      !serialization::tryWritePod(file, builtPageCount_) || !serialization::tryWritePod(file, protectedImageUnits_) ||
+  if (!writePublisherFontState() || !serialization::tryWritePod(file, builtPageCount_) ||
+      !serialization::tryWritePod(file, protectedImageUnits_) ||
       !serialization::tryWritePod(file, pageIndexOffsets.page) ||
       !serialization::tryWritePod(file, pageIndexOffsets.anchorMap) ||
       !serialization::tryWritePod(file, pageIndexOffsets.paragraph) ||

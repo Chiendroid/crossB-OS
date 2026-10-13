@@ -959,3 +959,7 @@ STR_SYNCING_FOLDER_BOOKS: "A sincronizar livros desta pasta..."
 STR_SYNC_TO_REVIEW_FORMAT: "Conflitos a rever: %u"
 STR_FAILED_BOOKS: "Livros com falha"
 STR_MORE_ITEMS_FORMAT: "+%u mais"
+
+STR_PUBLISHER_FONTS: "Tipos de letra da editora"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorar tipo de letra do corpo"
+STR_PUBLISHER_FONTS_ALL: "Todo o texto"

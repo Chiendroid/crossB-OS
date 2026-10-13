@@ -963,3 +963,7 @@ STR_SYNCING_FOLDER_BOOKS: "מסנכרן ספרים בתיקייה זו..."
 STR_SYNC_TO_REVIEW_FORMAT: "התנגשויות לבדיקה: %u"
 STR_FAILED_BOOKS: "ספרים שנכשלו"
 STR_MORE_ITEMS_FORMAT: "+%u נוספים"
+
+STR_PUBLISHER_FONTS: "גופני המוציא לאור"
+STR_PUBLISHER_FONTS_ACCENTS: "התעלמות מגופן גוף הטקסט"
+STR_PUBLISHER_FONTS_ALL: "כל הטקסט"

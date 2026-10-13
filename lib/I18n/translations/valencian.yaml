@@ -964,3 +964,7 @@ STR_SYNCING_FOLDER_BOOKS: "Sincronitzant els llibres d'esta carpeta..."
 STR_SYNC_TO_REVIEW_FORMAT: "Conflictes per revisar: %u"
 STR_FAILED_BOOKS: "Llibres amb errors"
 STR_MORE_ITEMS_FORMAT: "+%u més"
+
+STR_PUBLISHER_FONTS: "Tipus de lletra de l’editor"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignora la font del cos"
+STR_PUBLISHER_FONTS_ALL: "Tot el text"

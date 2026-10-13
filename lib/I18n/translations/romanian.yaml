@@ -961,3 +961,7 @@ STR_SYNCING_FOLDER_BOOKS: "Se sincronizează cărțile din acest dosar..."
 STR_SYNC_TO_REVIEW_FORMAT: "Conflicte de revizuit: %u"
 STR_FAILED_BOOKS: "Cărți eșuate"
 STR_MORE_ITEMS_FORMAT: "+%u în plus"
+
+STR_PUBLISHER_FONTS: "Fonturile editurii"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignoră fontul corpului"
+STR_PUBLISHER_FONTS_ALL: "Tot textul"

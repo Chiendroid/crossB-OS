@@ -963,3 +963,7 @@ STR_SYNCING_FOLDER_BOOKS: "Synkar böcker i den här mappen..."
 STR_SYNC_TO_REVIEW_FORMAT: "Konflikter att granska: %u"
 STR_FAILED_BOOKS: "Misslyckade böcker"
 STR_MORE_ITEMS_FORMAT: "+%u till"
+
+STR_PUBLISHER_FONTS: "Förlagets typsnitt"
+STR_PUBLISHER_FONTS_ACCENTS: "Ignorera brödtextens typsnitt"
+STR_PUBLISHER_FONTS_ALL: "All text"
