@@ -243,8 +243,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the touch clipping checks", file=sys.stderr)
         return 2
 
-    if args.c3_font_sizes and "Simulator smoke test passed: C3 font sizes" not in proc.stdout:
-        print("Simulator did not complete the C3 font-size checks", file=sys.stderr)
+    if args.c3_font_sizes and "Simulator smoke test passed: bitmap font sizes" not in proc.stdout:
+        print("Simulator did not complete the bitmap font-size checks", file=sys.stderr)
         return 2
 
     if args.font_family and not args.c3_font_sizes:
@@ -274,7 +274,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
-    parser.add_argument("--c3-font-sizes", action="store_true", help="Check C3 bitmap sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--bitmap-font-sizes", "--c3-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap sizes, inline layout, page cache, selection and SD reload")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
@@ -299,8 +299,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)
     args = parser.parse_args()
-    if args.c3_font_sizes and args.env not in ("simulator", "simulator-X3"):
-        parser.error("--c3-font-sizes requires a C3 simulator")
+    if args.c3_font_sizes and args.env not in ("simulator", "simulator-X3") and not (args.font_dir and args.font_family):
+        parser.error("--bitmap-font-sizes on S3 requires --font-dir and --font-family with cpfont fixtures")
     if args.font_size_book and not args.c3_font_sizes:
         parser.error("--font-size-book requires --c3-font-sizes")
     if args.language_file and not args.language_installer:

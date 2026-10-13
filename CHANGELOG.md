@@ -72,6 +72,7 @@
 - Keep touch selection advancing onto the next page when a held finger drifts slightly around the final word.
 - Add a touch Select button when choosing the Nearby File Transfer receive folder, including empty folders (#850).
 - Keep KOReader sync positions inside chapter wrappers deep in long chapters by resolving them before Wi-Fi starts; failed mapping no longer uploads a guessed path (#853).
+- Honor EPUB heading and text sizes with installed `.cpfont` sizes on ESP32-S3 readers.
 
 ### Changed
 

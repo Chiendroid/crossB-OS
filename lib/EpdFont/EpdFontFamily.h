@@ -26,7 +26,6 @@ class EpdFontFamily {
                          const EpdFont* boldItalic = nullptr, const EpdFont* fallback = nullptr)
       : regular(regular), bold(bold), italic(italic), boldItalic(boldItalic), fallback(fallback) {}
   ~EpdFontFamily() = default;
-#if !CROSSINK_SCALABLE_FONTS
   // Bitmap size identity belongs to the registration, leaving generated font data unchanged.
   EpdFontFamily withSize(int familyId, uint8_t points) const {
     auto family = *this;
@@ -36,7 +35,6 @@ class EpdFontFamily {
   }
   int sizeFamilyId() const { return sizeFamilyId_; }
   uint8_t pointSize() const { return pointSize_; }
-#endif
   // Missing filename glyphs retain their own font data and share the primary baseline.
   EpdFontFamily withFallbackFonts(const EpdFont* regularFont, const EpdFont* boldFont = nullptr) const {
     auto family = *this;
@@ -59,10 +57,8 @@ class EpdFontFamily {
   uint32_t applyLigatures(uint32_t cp, const char*& text, Style style = REGULAR) const;
 
  private:
-#if !CROSSINK_SCALABLE_FONTS
   int sizeFamilyId_ = 0;
   uint8_t pointSize_ = 0;
-#endif
   const EpdFont* regular;
   const EpdFont* bold;
   const EpdFont* italic;

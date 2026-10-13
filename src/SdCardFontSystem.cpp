@@ -512,7 +512,6 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
 
   if (manager_.currentFamilyName() != familyName || manager_.currentPointSize() != selectedPointSize) {
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
-#if !CROSSINK_SCALABLE_FONTS
     // Discover just the body and two candidates, rather than allocating the
     // whole catalog on a tight dictionary-return heap. At most three short
     // paths are heap-owned here and freed before the reader resumes.
@@ -529,9 +528,6 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
       }
     }
     const bool loaded = manager_.loadFamilyClosest(contentFamily, renderer, bodySize);
-#else
-    const bool loaded = manager_.loadFamilyFile(path, familyName, selectedPointSize, renderer);
-#endif
     if (!loaded) {
       LOG_ERR("SDFS", "Failed to restore reader font: %s", familyName);
       MemoryBudget::logHeapShape("dict.font_after_restore");

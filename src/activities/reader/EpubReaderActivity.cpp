@@ -6323,7 +6323,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (!epub) {
     return;
   }
-#if !CROSSINK_SCALABLE_FONTS
   // A dictionary swap can restore fewer optional SD sizes under low memory.
   // Its new identity invalidates disk caches; reconcile the live section too.
   // A registered built-in safe-mode fallback remains usable.
@@ -6333,7 +6332,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     section.reset();
     activeSectionFontId = 0;
   }
-#endif
   if (renderQuickActionsPopup()) {
     return;
   }

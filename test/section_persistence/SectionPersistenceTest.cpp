@@ -22,8 +22,10 @@
 extern uint32_t testHyphenationIdentity;
 
 namespace {
-constexpr uint8_t kFullVersion = 89;
-constexpr uint8_t kPartialVersion = 0xCA;
+constexpr uint8_t kFullVersion = 90;
+constexpr uint8_t kPartialVersion = 0xCB;
+constexpr uint8_t kC3BitmapFullVersion = 89;
+constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
 constexpr uint8_t kPreviousFullVersion = 87;
 constexpr uint8_t kParagraphSpacingFullVersion = 85;
 constexpr uint8_t kBorderSuppressionFullVersion = 84;
@@ -175,9 +177,10 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kPreviousFullVersion, kPreviousPartialVersion, kParagraphSpacingFullVersion, kParagraphSpacingPartialVersion,
-        kBorderSuppressionFullVersion, kBorderSuppressionPartialVersion, kOlderFullVersion, kOlderPartialVersion,
-        kEarlierFullVersion, kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
+       {kC3BitmapFullVersion, kC3BitmapPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
+        kParagraphSpacingFullVersion, kParagraphSpacingPartialVersion, kBorderSuppressionFullVersion,
+        kBorderSuppressionPartialVersion, kOlderFullVersion, kOlderPartialVersion, kEarlierFullVersion,
+        kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
         kPreviousReleasePrepPartialVersion}) {
     SectionHarness harness;
     harness.begin();

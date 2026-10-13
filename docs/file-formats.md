@@ -765,6 +765,12 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 90
+
+Complete caches use `90`; suspended partial caches use `0xCB`. The payload is
+unchanged. ESP32-S3 readers now apply installed bitmap sizes to EPUB text, so
+both cache types rebuild to use the updated wrapping and line heights.
+
 ### Version 89
 
 Complete caches use `89`; suspended partial caches use `0xCA`. The payload is

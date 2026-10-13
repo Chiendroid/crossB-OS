@@ -2593,12 +2593,12 @@ class SimulatorSmokeTest {
     if (renderer.getFontPointSize(baseFont) != 12) fail("Missing body size");
     for (const uint8_t points : {8, 12, 24, 32, 44}) {
 #if CROSSINK_SCALABLE_FONTS
-      if (renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
+      if (!renderer.isSdCardFont(baseFont) &&
+          renderer.getFontPointSize(renderer.getFontIdForSize(baseFont, points)) != points)
         fail("Missing scalable content size %u", unsigned(points));
-#else
+#endif
       const int chosen = renderer.getFontIdForSize(baseFont, points);
       if (!renderer.getFontPointSize(chosen)) fail("Bitmap size missing");
-#endif
     }
     const std::string path = "/block-font-smoke.xhtml";
     if (!Storage.writeFile(path.c_str(),
@@ -2679,7 +2679,6 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
   }
 
-#if !CROSSINK_SCALABLE_FONTS
   void verifyBitmapBook(const int fontId, const char* label) {
     if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK")) return;
     RenderLock lock;
@@ -2732,6 +2731,9 @@ class SimulatorSmokeTest {
 
   void verifyBitmapFontSizes() {
     const auto orientation = renderer.getOrientation();
+#if CROSSINK_SCALABLE_FONTS
+    verifyBlockFontSizes(sdFontSystem.ensureBuiltInReaderFont(renderer), "s3-scalable");
+#else
     for (const int base : {BITTER_12_FONT_ID, LEXENDDECA_12_FONT_ID}) {
       if (renderer.getFontPointSize(base) != 12) fail("Bitmap body size missing");
       for (const auto pair : {std::pair<uint8_t, uint8_t>{8, 10}, {11, 10}, {13, 14}, {15, 16}, {44, 16}}) {
@@ -2746,6 +2748,7 @@ class SimulatorSmokeTest {
       verifyBitmapBook(renderer.getFontIdForSize(base, 16), base == BITTER_12_FONT_ID ? "bitter16" : "lexend16");
       renderer.setOrientation(orientation);
     }
+#endif
     if (renderer.getFontPointSize(UI_12_FONT_ID) != 0 || renderer.getFontIdForSize(UI_12_FONT_ID, 24) != UI_12_FONT_ID)
       fail("Reader sizing changed UI fonts");
     if (const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY")) {
@@ -2753,23 +2756,27 @@ class SimulatorSmokeTest {
       SETTINGS.readerFontPointSize = 12;
       sdFontSystem.ensureLoaded(renderer);
       const int original = SETTINGS.getReaderFontId();
-      if (!renderer.isSdCardFont(original)) fail("C3 SD family not loaded");
-      verifyBlockFontSizes(original, "c3-sd");
+      if (!renderer.isSdCardFont(original)) fail("Bitmap SD family not loaded");
+      renderer.setOrientation(GfxRenderer::Portrait);
+      verifyBlockFontSizes(original, "bitmap-sd");
+      renderer.setOrientation(GfxRenderer::LandscapeClockwise);
+      verifyBlockFontSizes(original, "bitmap-sd-landscape");
+      renderer.setOrientation(orientation);
       sdFontSystem.releaseLoadedFont(renderer);
       sdFontSystem.ensureLoaded(renderer);
-      if (SETTINGS.getReaderFontId() != original) fail("C3 SD size identity changed on reload");
-      verifyBlockFontSizes(original, "c3-sd-reloaded");
-      if (renderer.getFontPointSize(renderer.getFontIdForSize(original, 8)) >= 12) fail("C3 SD shrinking unavailable");
+      if (SETTINGS.getReaderFontId() != original) fail("Bitmap SD size identity changed on reload");
+      verifyBlockFontSizes(original, "bitmap-sd-reloaded");
+      if (renderer.getFontPointSize(renderer.getFontIdForSize(original, 8)) >= 12)
+        fail("Bitmap SD shrinking unavailable");
       const auto dictionary = sdFontSystem.activateDictionaryFont(renderer, family, 8);
-      if (!dictionary.usingDictionaryFont || dictionary.fontId == original) fail("C3 dictionary font did not swap");
-      if (sdFontSystem.restoreReaderFont(renderer) != original) fail("C3 dictionary return lost content sizes");
-      verifyBlockFontSizes(original, "c3-sd-dictionary-return");
+      if (!dictionary.usingDictionaryFont || dictionary.fontId == original) fail("Bitmap dictionary font did not swap");
+      if (sdFontSystem.restoreReaderFont(renderer) != original) fail("Bitmap dictionary return lost content sizes");
+      verifyBlockFontSizes(original, "bitmap-sd-dictionary-return");
       verifyBitmapBook(original, "sd12");
     }
     renderer.setOrientation(orientation);
-    LOG_INF("SMOKE", "C3 bitmap size snapping, page cache and selection passed");
+    LOG_INF("SMOKE", "Bitmap size snapping, page cache and selection passed");
   }
-#endif
 
   void tickFileBrowserSyncReturn() {
 #if CROSSINK_APP_CAP_TOUCH
@@ -4591,13 +4598,11 @@ class SimulatorSmokeTest {
           step = SmokeStep::ReaderInput;
           break;
         }
-#if !CROSSINK_SCALABLE_FONTS
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {
           verifyBitmapFontSizes();
-          LOG_INF("SMOKE", "Simulator smoke test passed: C3 font sizes");
+          LOG_INF("SMOKE", "Simulator smoke test passed: bitmap font sizes");
           std::_Exit(0);
         }
-#endif
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY")) verifyDictionaryElisions();
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE")) {
           verifyStatusBarFeature();

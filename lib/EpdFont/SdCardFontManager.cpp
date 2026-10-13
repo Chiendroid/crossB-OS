@@ -64,11 +64,9 @@ int SdCardFontManager::loadFilePath(const char* path, const char* familyName, ui
   LOG_DBG("SDMGR", "Loaded %s size=%u id=%d styles=%u", path, pointSize, fontId, font->styleCount());
 
   EpdFontFamily fontFamily(font->getEpdFont(0), font->getEpdFont(1), font->getEpdFont(2), font->getEpdFont(3));
-#if !CROSSINK_SCALABLE_FONTS
   // Dictionary-only extra sizes must not change the reader's available set
   // behind its cache identity; only body and budgeted content sizes participate.
   if (loaded_.size() == 1 || residentLimit) fontFamily = fontFamily.withSize(loaded_.front().fontId, pointSize);
-#endif
   renderer.insertFont(fontId, fontFamily);
   // Transfer to the manager's existing LoadedFont owner list; unloadAll/dtor free it.
   font.release();
@@ -94,23 +92,18 @@ bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, Gf
     return false;
   }
 
-#if !CROSSINK_SCALABLE_FONTS
   // Body plus two optional sizes; allocate this tiny owner list once at load.
   loaded_.reserve(3);
-#endif
   if (loadFile(*selected, family.name.c_str(), renderer) == 0) {
     return false;
   }
 
   loadedFamilyName_ = family.name;
   loadedPointSize_ = selected->pointSize;
-#if !CROSSINK_SCALABLE_FONTS
   loadContentSizes(family, renderer);
-#endif
   return true;
 }
 
-#if !CROSSINK_SCALABLE_FONTS
 std::array<uint8_t, 2> SdCardFontManager::contentSizeTargets(const uint8_t bodySize) {
   return {static_cast<uint8_t>(std::min<unsigned>(44, unsigned(bodySize) * 2)),
           static_cast<uint8_t>(std::max<unsigned>(8, unsigned(bodySize) * 3 / 4))};
@@ -130,7 +123,7 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
     for (const auto& loaded : loaded_) present |= loaded.size == file->pointSize;
     if (present) continue;
     if (ESP.getFreeHeap() < FREE_RESERVE + SIZE_BUDGET || ESP.getMaxAllocHeap() < BLOCK_RESERVE + SIZE_BUDGET) {
-      LOG_DBG("SDMGR", "Skipping optional size %u: preserving C3 heap reserve", file->pointSize);
+      LOG_DBG("SDMGR", "Skipping optional size %u: preserving heap reserve", file->pointSize);
       continue;
     }
     loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer, SIZE_BUDGET);
@@ -167,7 +160,6 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
                            .withSize(newId, loaded.size));
   }
 }
-#endif
 
 #if CROSSINK_SCALABLE_FONTS
 bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
