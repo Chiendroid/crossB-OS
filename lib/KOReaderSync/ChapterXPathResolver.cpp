@@ -672,12 +672,14 @@ std::string ChapterXPathResolver::findXPathForProgress(const std::shared_ptr<Epu
     return "/body/DocFragment[" + std::to_string(spineIndex + 1) + "]/body";
   }
 
-  ParagraphTextCounter counter;
-  if (!counter.ok() || !epub->readItemContentsToStream(href, counter, 1024) || !counter.finish()) {
-    return "";
+  size_t totalVisibleChars = 0;
+  {
+    ParagraphTextCounter counter;
+    if (!counter.ok() || !epub->readItemContentsToStream(href, counter, 1024) || !counter.finish()) {
+      return "";
+    }
+    totalVisibleChars = counter.totalVisibleChars();
   }
-
-  const size_t totalVisibleChars = counter.totalVisibleChars();
   if (totalVisibleChars == 0) {
     return "";
   }

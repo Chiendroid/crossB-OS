@@ -589,15 +589,15 @@ void KOReaderSyncActivity::performSync() {
           result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(), remoteProgress.percentage,
           remoteProgress.progress.c_str());
 
-  // A minimal network boot intentionally reaches this point without loading the EPUB.
-  // Reconstruct local progress only after the remote TLS request has completed.
+  // Folder sync resolves here with Wi-Fi already active. Single-book sync keeps
+  // only its precomputed pointer through the network request.
   if (!ensureLocalProgressLoaded()) {
     LOG_ERR("KOSync", "Failed to reconstruct local progress after network boot");
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
       progressFailed = true;
-      statusMessage = tr(STR_SYNC_REOPTIMIZE_REQUIRED);
+      statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
     }
     requestUpdate(true);
     return;
@@ -616,6 +616,18 @@ void KOReaderSyncActivity::performSync() {
       state = SYNC_FAILED;
       progressFailed = true;
       statusMessage = KOReaderSyncClient::errorString(result);
+    }
+    requestUpdate(true);
+    return;
+  }
+
+  ensureEpubLoaded();
+  if (!epub) {
+    {
+      RenderLock lock(*this);
+      state = SYNC_FAILED;
+      progressFailed = true;
+      statusMessage = tr(STR_SYNC_FAILED_MSG);
     }
     requestUpdate(true);
     return;
@@ -892,8 +904,45 @@ void KOReaderSyncActivity::onEnter() {
     return;
   }
 
+  sdFontSystem.releaseForNetwork(renderer);
+
+  // On a fresh network boot, resolve the saved position before the radio takes
+  // heap needed by ZIP inflation and XML parsing. Keep only the small result;
+  // retaining EPUB metadata would compete with the TLS handshake instead.
+  if (!folderSync && !hasActiveStationWifiConnection()) {
+    {
+      RenderLock lock(*this);
+      state = SYNCING;
+      statusMessage = tr(STR_LOADING);
+    }
+    if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+      LOG_ERR("KOSync", "Local mapping screen could not be rendered; aborting sync");
+      {
+        RenderLock lock(*this);
+        state = SYNC_FAILED;
+        progressFailed = true;
+        statusMessage = tr(STR_SYNC_FAILED_MSG);
+      }
+      requestUpdate(true);
+      return;
+    }
+    LOG_INF("KOSync", "local mapping before WiFi free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    const bool loaded = ensureLocalProgressLoaded();
+    epub.reset();
+    if (!loaded) {
+      LOG_ERR("KOSync", "Cannot resolve saved position before WiFi");
+      {
+        RenderLock lock(*this);
+        state = SYNC_FAILED;
+        progressFailed = true;
+        statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
+      }
+      requestUpdate(true);
+      return;
+    }
+  }
+
   // Past this point every path uses WiFi.
-  sdFontSystem.releaseLoadedFont(renderer);
   wifiActivated = true;
 
   // Check if already connected (e.g. from settings page auth)

@@ -97,7 +97,7 @@ class KOReaderSyncActivity final : public Activity {
     NO_CREDENTIALS
   };
 
-  std::shared_ptr<Epub> epub;  // null until lazy-loaded after TLS in performSync()
+  std::shared_ptr<Epub> epub;  // released between pre-network mapping and TLS
   std::string epubPath;
   std::string localChapterName;
   int currentSpineIndex;
@@ -115,7 +115,7 @@ class KOReaderSyncActivity final : public Activity {
   KOReaderProgress remoteProgress;
   CrossPointPosition remotePosition;
 
-  // Loaded from saved reader progress after the remote TLS probe completes.
+  // Resolved before Wi-Fi on a fresh single-book network boot; deferred in batches.
   KOReaderPosition localProgress;
   bool localProgressDeferred = false;
   bool restartBeforeNetwork = false;

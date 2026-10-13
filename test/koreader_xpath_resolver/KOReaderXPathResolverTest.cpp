@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "ChapterXPathResolver.h"
+#include "ProgressMapper.h"
+#include "XmlParserUtils.h"
 
 namespace {
 std::shared_ptr<Epub> epubWith(std::string xhtml) {
@@ -23,6 +25,75 @@ constexpr char kProcessingInstructionBoundaryFixture[] = R"(<html><body><p>befor
 constexpr char kCdataBoundaryFixture[] = R"(<html><body><p>before<![CDATA[middle]]>after</p></body></html>)";
 constexpr char kHiddenCdataFixture[] = R"(<html><body><p>before<rp><![CDATA[hidden]]></rp>after</p></body></html>)";
 }  // namespace
+
+namespace {
+class KOReaderLongChapter : public testing::Test {
+ protected:
+  void SetUp() override {
+    ASSERT_EQ(XmlTestHeap::live, 0u);
+    XmlTestHeap::peak = 0;
+    XmlTestHeap::limit = SIZE_MAX;
+    std::string xhtml = "<?xml version='1.0'?><!DOCTYPE html><html><body><section>";
+    for (int paragraph = 1; paragraph <= 480; ++paragraph) {
+      xhtml += "<p><b>[P &#183; " + std::to_string(paragraph) + "]</b> " + std::string(450, 'a') + "</p>\n";
+      if (paragraph < 472) lateOffset += 450 + 1 + 1 + 6 + std::to_string(paragraph).size();
+    }
+    xhtml += "</section></body></html>";
+    epub = epubWith(std::move(xhtml));
+  }
+  void TearDown() override {
+    EXPECT_EQ(XmlTestHeap::live, 0u);
+    XmlTestHeap::limit = SIZE_MAX;
+  }
+  std::shared_ptr<Epub> epub;
+  uint32_t lateOffset = 0;
+};
+}  // namespace
+
+TEST_F(KOReaderLongChapter, PreservesLateWrapperAndInlineAnchorWithLimitedParserHeap) {
+  XmlTestHeap::limit = 16 * 1024;
+  CrossPointPosition position{0, 471, 480};
+  position.hasVisibleTextOffset = true;
+  position.visibleTextOffset = lateOffset + 3;
+  const auto mapped = ProgressMapper::toKOReader(epub, position);
+  EXPECT_TRUE(mapped.valid);
+  EXPECT_EQ(mapped.xpath, "/body/DocFragment[1]/body/section[1]/p[472]/b[1]/text()[1].3");
+}
+
+TEST_F(KOReaderLongChapter, ReleasesCountingParserBeforeProgressResolution) {
+  XmlTestHeap::limit = 16 * 1024;
+  const auto xpath = ChapterXPathResolver::findXPathForProgress(epub, 0, 0.98f);
+  EXPECT_FALSE(xpath.empty()) << "Expat peak: " << XmlTestHeap::peak;
+  EXPECT_NE(xpath.find("/section[1]/p["), std::string::npos);
+}
+
+TEST_F(KOReaderLongChapter, RejectsPositionWhenParserRunsOutOfMemory) {
+  XmlTestHeap::limit = 0;
+  CrossPointPosition position{0, 471, 480};
+  position.hasVisibleTextOffset = true;
+  position.visibleTextOffset = lateOffset;
+  position.hasParagraphIndex = true;
+  position.paragraphIndex = 472;
+  const auto mapped = ProgressMapper::toKOReader(epub, position);
+  EXPECT_FALSE(mapped.valid);
+  EXPECT_TRUE(mapped.xpath.empty());
+  EXPECT_FALSE(mapped.needsReoptimization);
+}
+
+TEST_F(KOReaderLongChapter, RejectsUnreadableChapterInsteadOfGuessingParagraph) {
+  epub->failRead = true;
+  const auto mapped = ProgressMapper::toKOReader(epub, {0, 471, 480});
+  EXPECT_FALSE(mapped.valid);
+  EXPECT_TRUE(mapped.xpath.empty());
+}
+
+TEST_F(KOReaderLongChapter, PreservesReoptimizationReasonForMissingSourceMap) {
+  epub->sourceMapRequired = true;
+  const auto mapped = ProgressMapper::toKOReader(epub, {0, 471, 480}, PositionCoordinateSpace::SourceDocument);
+  EXPECT_FALSE(mapped.valid);
+  EXPECT_TRUE(mapped.xpath.empty());
+  EXPECT_TRUE(mapped.needsReoptimization);
+}
 
 TEST(KOReaderXPathResolver, ResolvesExactOffsetWithFullAncestry) {
   EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epubWith(kNestedFixture), 0, 6),
