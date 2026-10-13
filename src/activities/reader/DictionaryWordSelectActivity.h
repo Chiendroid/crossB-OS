@@ -160,6 +160,7 @@ class DictionaryWordSelectActivity final : public Activity {
   void showTouchSelectionActions(std::string phrase, size_t wordCount);
   TextSelectionOverlay::Layout touchSelectionLayout() const;
   bool handleTouchSelection();
+  bool isWithinSelectedPageEndDwellSlop(int x, int y) const;
   void performTouchSelectionAction(int action);
   void drawTouchSelection() const;
 #endif

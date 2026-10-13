@@ -69,6 +69,7 @@
 - Smart sync only looks up remote progress under the configured Document Matching method, so a position saved for a different version of the file can no longer move you to the wrong place.
 - Remove unused button-hint space from Progress Sync screens on touch devices, including landscape.
 - Keep words intact across text chunks in long EPUB paragraphs, including non-Latin text and combining marks (#844).
+- Keep touch selection advancing onto the next page when a held finger drifts slightly around the final word.
 
 ### Changed
 

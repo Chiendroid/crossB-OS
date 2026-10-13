@@ -76,6 +76,9 @@ bool ClippingSelectionSmokeTest::tick() {
   static size_t initialCount = 0;
   static bool pageFailureTestDone = false, blankDwellTestDone = false;
   static uint32_t blankDwellStarted = 0;
+  static bool dwellJitterInjected = false;
+  static bool dwellEscapeTestDone = false;
+  static DictionaryClippingRequest savedCrossPageRequest;
   static DictionaryWordSelectActivity::ReaderPageLoadFn originalPageLoad = nullptr;
   static int x = 0, y = 0, initialIndex = 0;
   if (millis() - lastStep < 250 || RenderLock::peek()) return false;
@@ -256,8 +259,18 @@ bool ClippingSelectionSmokeTest::tick() {
       while (selection->navigator.getWordAt(last + 1)) ++last;
       selection->navigator.selectIndex(last - 1);
       selectWord();
+      dwellJitterInjected = false;
+      if (pageFailureTestDone) stage = 70;
       break;
     }
+    case 70:
+      mappedInputManager.simulatorInjectTouchRelease(x, y);
+      break;
+    case 71:
+      actionsReady();
+      press(selection->touchSelectionLayout().endHandle);
+      stage = 41;
+      break;
     case 41:
       if (!blankDwellTestDone) {
         const auto* word = selection->navigator.getWordAt(initialIndex + 1);
@@ -285,6 +298,23 @@ bool ClippingSelectionSmokeTest::tick() {
       break;
     case 42:
       require(selection, "Lost selector while paging");
+      if (!dwellJitterInjected) {
+        require(selection->touchPageEndIndex_ == initialIndex + 1, "Final word did not arm page continuation");
+        const auto* word = selection->navigator.getSelected();
+        // A real capacitive contact can drift into the preceding inter-word
+        // gap while the user holds the final word. Stay inside the dwell slop.
+        x = word->screenX - 7 - selection->touchDragOffsetX_;
+        mappedInputManager.simulatorInjectTouchMove(x, y);
+        dwellJitterInjected = true;
+        if (pageFailureTestDone && !dwellEscapeTestDone) {
+          stage = 72;
+          break;
+        }
+        --stage;
+        break;
+      }
+      require(selection->activePageOffset_ == 1 || selection->navigator.getCurrentFlatIndex() == initialIndex + 1,
+              "Small final-word jitter cancelled the held endpoint");
       if (!pageFailureTestDone) {
         if (selection->pendingTouchPhrase_.empty()) {
           --stage;
@@ -299,6 +329,19 @@ bool ClippingSelectionSmokeTest::tick() {
         break;
       }
       require(selection->navigator.getCurrentFlatIndex() == 0, "Paging did not start at the first word");
+      break;
+    case 72:
+      require(selection->navigator.getCurrentFlatIndex() == initialIndex + 1,
+              "Handle dwell did not tolerate final-word jitter");
+      moveEndpoint(initialIndex);
+      break;
+    case 73:
+      require(selection->navigator.getCurrentFlatIndex() == initialIndex && selection->touchPageEndIndex_ == -1,
+              "Dragging away from the final word did not cancel page continuation");
+      dwellEscapeTestDone = true;
+      dwellJitterInjected = false;
+      moveEndpoint(initialIndex + 1);
+      stage = 42;
       break;
     case 43:
       require(selection->navigator.getCurrentFlatIndex() == 0, "Stationary finger selected the whole next page");
@@ -323,16 +366,30 @@ bool ClippingSelectionSmokeTest::tick() {
       actionsReady();
       require(selection->navigator.getLookupSelectionWordCount() == 3, "Next-page end handle did not update");
       capture("clip-actions-next-page");
-      mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+      savedCrossPageRequest = selection->pendingClippingRequest_;
+      press(selection->touchSelectionLayout().actions[1]);
       break;
     case 48:
-      mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+      mappedInputManager.simulatorInjectTouchRelease(x, y);
       break;
-    case 49:
-      require(reader, "Paging dismissal did not return to reader");
+    case 49: {
+      if (!reader) {
+        --stage;
+        break;
+      }
+      require(CLIPPINGS.clippingCount() == initialCount + 2, "Cross-page clipping was not saved exactly once");
+      const auto* clipping = CLIPPINGS.clippingAt(initialCount + 1);
+      require(clipping && clipping->endPage == clipping->startPage + 1 &&
+                  clipping->startWordIndex == savedCrossPageRequest.firstPageWordOrdinal &&
+                  clipping->endWordIndex == savedCrossPageRequest.lastPageWordOrdinal,
+              "Saved cross-page clipping lost its endpoints");
+      std::string text;
+      require(CLIPPINGS.readClippingText(*clipping, text) && !text.empty(), "Saved cross-page clipping has no text");
+      capture("clip-actions-cross-page-saved");
       reader->openWordSelect(false);
       stage = 17;
       break;
+    }
     case 50:
       actionsReady();
       press(selection->touchSelectionLayout().startHandle);
@@ -363,7 +420,7 @@ bool ClippingSelectionSmokeTest::tick() {
       require((selection && selection->controller.isActive()) ||
                   activityManager.isCurrentActivityNamed("DictionaryDefinition"),
               "Lookup action did not start dictionary flow");
-      require(CLIPPINGS.clippingCount() == initialCount + 1, "Other actions unexpectedly saved a clipping");
+      require(CLIPPINGS.clippingCount() == initialCount + 2, "Other actions unexpectedly saved a clipping");
       return true;
   }
   return false;
