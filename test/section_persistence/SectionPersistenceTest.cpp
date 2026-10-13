@@ -303,3 +303,75 @@ TEST_F(SectionPersistenceTest, CharacterSpacingInvalidatesCompleteAndPartialSect
     EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
   }
 }
+
+TEST_F(SectionPersistenceTest, ParagraphPositionMatchesLegacyWalkAcrossChunks) {
+  SectionHarness harness;
+  harness.begin();
+  // A long paragraph crosses both 64-entry chunk boundaries.
+  for (uint16_t i = 0; i < 150; ++i) {
+    ASSERT_EQ(harness.section.build_->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
+    const auto offset = harness.section.onPageComplete(std::make_unique<Page>());
+    harness.section.build_->pageIndex.appendPrepared({offset,
+                                                      static_cast<uint16_t>(i < 2     ? 1
+                                                                            : i < 140 ? 7
+                                                                                      : 9),
+                                                      0, i});
+  }
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  const auto before = Storage.reads(reopened.filePath);
+  const auto position = reopened.getParagraphPositionForPage(90);
+  ASSERT_TRUE(position);
+  EXPECT_EQ(position->index, 7);
+  EXPECT_EQ(position->offset, 88);
+  EXPECT_EQ(position->span, 138);
+  EXPECT_LE(Storage.reads(reopened.filePath) - before, 6u);
+  for (uint16_t page : {0, 1, 2, 63, 64, 90, 127, 128, 139, 140, 149}) {
+    const auto index = reopened.getParagraphIndexForPage(page);
+    ASSERT_TRUE(index);
+    uint16_t start = page, end = page + 1;
+    while (start > 0 && reopened.getParagraphIndexForPage(start - 1) == index) --start;
+    while (end < reopened.pageCount && reopened.getParagraphIndexForPage(end) == index) ++end;
+    const auto actual = reopened.getParagraphPositionForPage(page);
+    ASSERT_TRUE(actual);
+    EXPECT_EQ(actual->index, *index);
+    EXPECT_EQ(actual->offset, page - start);
+    EXPECT_EQ(actual->span, end - start);
+  }
+  EXPECT_FALSE(reopened.getParagraphPositionForPage(150));
+}
+
+TEST_F(SectionPersistenceTest, ParagraphPositionUsesLivePrefixAndRejectsInvalidDiskTable) {
+  SectionHarness harness;
+  harness.begin();
+  const size_t headerSize = harness.section.file.position();
+  harness.appendPages(5);
+  ASSERT_TRUE(harness.commit(kPartialVersion, 100, 200));
+  harness.finishSuccessfulCommit();
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  auto replay = makeUniqueNoThrow<Section::BuildContext>();
+  for (uint16_t i = 0; i < 3; ++i) {
+    ASSERT_EQ(replay->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
+    replay->pageIndex.appendPrepared({100u + i, 9, 0, 0});
+  }
+  reopened.build_ = std::move(replay);
+  // Disk page 3 is also paragraph 9, but page 4 is paragraph 12.
+  const auto position = reopened.getParagraphPositionForPage(1);
+  ASSERT_TRUE(position);
+  EXPECT_EQ(position->index, 9);
+  EXPECT_EQ(position->offset, 1);
+  EXPECT_EQ(position->span, 4);
+  const auto diskPosition = reopened.getParagraphPositionForPage(3);
+  ASSERT_TRUE(diskPosition);
+  EXPECT_EQ(diskPosition->offset, 3);
+  EXPECT_EQ(diskPosition->span, 4);
+  reopened.build_.reset();
+  auto bytes = Storage.bytes(reopened.filePath);
+  const uint32_t invalid = UINT32_MAX;
+  memcpy(bytes.data() + headerSize - 3 * sizeof(uint32_t), &invalid, sizeof(invalid));
+  Storage.put(reopened.filePath, bytes);
+  EXPECT_FALSE(reopened.getParagraphPositionForPage(1));
+}

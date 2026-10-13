@@ -95,6 +95,7 @@
 - Changing Document Matching on the reader or the web settings page now warns first: books get new ids, so the next Sync Books or Sync Folder checks every book again.
 - Sync Books and Sync Folder stay on one screen with the current book, a progress bar, and the running counts, instead of flashing a screen for every book. Failed books no longer stop the sync: the final screen lists each one with what failed ("Progress sync failed", "Stats sync failed", or "Clippings sync failed") and why. Use Up and Down to scroll a long list. In Ask on conflicts, choices wait until every book is done and are then shown one after another.
 - Sync Book on a single book shows which part failed with the book's title underneath and a result line for its progress, reading stats, and clippings.
+- Reduce repeated SD reads when opening EPUBs, browsing Library rows, and preserving reading position through layout changes; reuse temporary TXT indexing scratch without retaining it while reading.
 
 ## [v1.6.1] - 2026-10-03
 
