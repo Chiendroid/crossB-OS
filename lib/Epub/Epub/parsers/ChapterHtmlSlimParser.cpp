@@ -75,7 +75,7 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol"};
+static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol", "figure"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -1120,6 +1120,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     return;
   }
 
+  emptyTextBlockAfterImage = false;
   nextWordContinues = false;  // New block = new paragraph, no continuation
   pendingInlinePadding = 0;
   partWordInlinePadding = 0;
@@ -2914,10 +2915,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 self->setCurrentPageVisibleOffset(self->visibleTextOffset);
                 self->markCurrentPageFromCurrentElement();
                 self->noteContent(self->currentPageNextY, self->currentPageNextY + displayHeight);
-                self->currentPageNextY += displayHeight + imageMarginBottom;
+                self->currentPageNextY += displayHeight;  // The container spends its bottom inset when it closes.
 
                 if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
-                  BlockStyle afterImageStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutBottom();
+                  BlockStyle afterImageStyle =
+                      self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutTop().withoutBottom();
                   if (self->headingOpenerActive) {
                     // The title run trailing the ornament copies the heading style too and would inherit
                     // the same drop margin, stacking a second heading-sized gap under the image. Replace
@@ -2926,6 +2928,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     afterImageStyle.paddingTop = 0;
                   }
                   self->currentTextBlock->setBlockStyle(afterImageStyle);
+                  self->emptyTextBlockAfterImage = true;
                 }
 
                 self->pushCssAncestor(self->depth, name, classAttr, idAttr);
@@ -3082,6 +3085,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (!self->embeddedStyle || requestedAlign != CssTextAlign::None) {
     userAlignmentBlockStyle.textAlignDefined = true;
     userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
+  }
+
+  // Figures lay out artwork and captions, independently of the reader's prose alignment.
+  if (self->embeddedStyle && strcmp(name, "figure") == 0 && cssStyle.hasTextAlign()) {
+    userAlignmentBlockStyle.alignment = cssStyle.textAlign;
   }
 
   if (!self->embeddedStyle || self->isLightMode()) {
@@ -4037,17 +4045,24 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->updateEffectiveInlineStyle();
   }
 
-  if (headerOrBlockTag && self->boxScopeCount && self->boxScopes[self->boxScopeCount - 1].depth == self->depth) {
-    // Apply the closing inset before flushing; the normal stack-pop path below
-    // can no longer add it once this block has been consumed.
-    if (self->blockStyleCount_ > 1 && self->blockStyleDepths_[self->blockStyleCount_ - 1] == self->depth) {
-      const auto& closingStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
+  // Spend the container's closing inset once, before either decorated or ordinary block cleanup.
+  if (headerOrBlockTag && strcmp(name, "br") != 0 && self->blockStyleCount_ > 1 &&
+      self->blockStyleDepths_[self->blockStyleCount_ - 1] == self->depth) {
+    const auto& closingStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
+    if (!self->currentTextBlock || (self->emptyTextBlockAfterImage && self->currentTextBlock->isEmpty())) {
+      self->currentPageNextY += closingStyle.bottomInset();
       if (self->currentTextBlock) {
-        self->currentTextBlock->setBlockStyle(self->currentTextBlock->getBlockStyle().addBottom(closingStyle));
-      } else {
-        self->currentPageNextY += closingStyle.bottomInset();
+        // A direct image already consumed the top inset. Keep the empty buffer usable for
+        // following bare text, but restore the parent style before it can inherit figure spacing.
+        self->currentTextBlock->setBlockStyle(
+            self->blockStyleBuf_[self->blockStyleCount_ - 2].withoutTop().withoutBottom());
       }
+    } else {
+      self->currentTextBlock->setBlockStyle(self->currentTextBlock->getBlockStyle().addBottom(closingStyle));
     }
+  }
+
+  if (headerOrBlockTag && self->boxScopeCount && self->boxScopes[self->boxScopeCount - 1].depth == self->depth) {
     if (self->currentTextBlock && (!self->currentTextBlock->isEmpty() || self->dropCap.length)) {
       self->makePages();
       self->currentTextBlock.reset();
@@ -4063,13 +4078,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     // br is self-closing and not a container — it doesn't push/pop the stack.
     if (strcmp(name, "br") != 0 && self->blockStyleCount_ > 1 &&
         self->blockStyleDepths_[self->blockStyleCount_ - 1] == self->depth) {
-      // Apply closing element's bottom margin to the current text block so
-      // container spacing appears after the element's content (on the last child),
-      // not on the first child via the empty-block merge in startNewTextBlock.
-      if (self->currentTextBlock) {
-        const auto style = self->currentTextBlock->getBlockStyle();
-        self->currentTextBlock->setBlockStyle(style.addBottom(self->blockStyleBuf_[self->blockStyleCount_ - 1]));
-      }
       self->blockStyleCount_--;
       self->updateEffectiveInlineStyle();
       if (self->tableDepth == 0 && !self->isLightMode() && self->renderer.getFontPointSize(self->fontId)) {
@@ -4077,7 +4085,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
           self->makePages();
           self->currentTextBlock.reset();
         }
+        const bool emptyAfterImage =
+            self->currentTextBlock && self->currentTextBlock->isEmpty() && self->emptyTextBlockAfterImage;
         self->startNewTextBlock(self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutTop().withoutBottom());
+        self->emptyTextBlockAfterImage = emptyAfterImage;
       }
     }
   }

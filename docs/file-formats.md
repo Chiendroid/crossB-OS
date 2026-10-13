@@ -765,6 +765,12 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 91
+
+Complete caches use `91`; suspended partial caches use `0xCC`. The payload is
+unchanged. Figure containers now apply publisher alignment and spacing, so both
+cache types rebuild to center chapter ornaments and separate them from nearby text.
+
 ### Version 90
 
 Complete caches use `90`; suspended partial caches use `0xCB`. The payload is

@@ -22,8 +22,10 @@
 extern uint32_t testHyphenationIdentity;
 
 namespace {
-constexpr uint8_t kFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xCB;
+constexpr uint8_t kFullVersion = 91;
+constexpr uint8_t kS3BitmapFullVersion = 90;
+constexpr uint8_t kPartialVersion = 0xCC;
+constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
 constexpr uint8_t kPreviousFullVersion = 87;
@@ -177,10 +179,10 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kC3BitmapFullVersion, kC3BitmapPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
-        kParagraphSpacingFullVersion, kParagraphSpacingPartialVersion, kBorderSuppressionFullVersion,
-        kBorderSuppressionPartialVersion, kOlderFullVersion, kOlderPartialVersion, kEarlierFullVersion,
-        kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
+       {kS3BitmapFullVersion, kS3BitmapPartialVersion, kC3BitmapFullVersion, kC3BitmapPartialVersion,
+        kPreviousFullVersion, kPreviousPartialVersion, kParagraphSpacingFullVersion, kParagraphSpacingPartialVersion,
+        kBorderSuppressionFullVersion, kBorderSuppressionPartialVersion, kOlderFullVersion, kOlderPartialVersion,
+        kEarlierFullVersion, kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
         kPreviousReleasePrepPartialVersion}) {
     SectionHarness harness;
     harness.begin();
