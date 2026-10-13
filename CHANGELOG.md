@@ -28,6 +28,8 @@
 - Render EPUB headings and CSS font sizes on X3/X4 using available bitmap sizes; optional SD sizes stay within a small memory budget and fall back safely when memory is tight.
 - Choose whether the built-in EPUB upload optimizer removes embedded fonts; removal is on by default and can be remembered in the browser.
 
+- Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
+
 ### Fixed
 
 - Explain OPDS feed failures caused by credentials, withheld credentials across origins, server errors, or no response (adapted from Marco Rojas, CrossPoint #3872).

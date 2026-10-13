@@ -75,7 +75,8 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol", "figure"};
+static constexpr const char* const BLOCK_TAGS[] = {"p",  "li", "div",    "br",      "blockquote",
+                                                   "ul", "ol", "figure", "fieldset"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -2284,10 +2285,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Compute CSS style for this element early so display:none can short-circuit
   // before tag-specific branches emit any content or metadata.
   CssStyle cssStyle;
+  if (strcmp(name, "fieldset") == 0) {
+    // Reader defaults sit below publisher CSS. Use a crisp e-ink outline instead
+    // of a browser's groove border, reusing the existing bounded box renderer.
+    for (auto& side : cssStyle.borders) side = {1, CssBorderStyle::Solid};
+    cssStyle.defined.border = 1;
+    cssStyle.borderStyleDefined = cssStyle.borderWidthDefined = 0x0F;
+    cssStyle.marginLeft = cssStyle.marginRight = CssLength(2);
+    cssStyle.defined.marginLeft = cssStyle.defined.marginRight = 1;
+    cssStyle.paddingTop = CssLength(0.35f, CssUnit::Em);
+    cssStyle.paddingBottom = CssLength(0.625f, CssUnit::Em);
+    cssStyle.paddingLeft = cssStyle.paddingRight = CssLength(0.75f, CssUnit::Em);
+    cssStyle.defined.paddingTop = cssStyle.defined.paddingBottom = 1;
+    cssStyle.defined.paddingLeft = cssStyle.defined.paddingRight = 1;
+  }
   if (self->cssParser) {
-    cssStyle = self->usesSimpleCssLookup()
-                   ? self->cssParser->resolveStyle(name, classAttr)
-                   : self->cssParser->resolveStyle(name, classAttr, self->ancestorStack_, idAttr);
+    cssStyle.applyOver(self->usesSimpleCssLookup()
+                           ? self->cssParser->resolveStyle(name, classAttr)
+                           : self->cssParser->resolveStyle(name, classAttr, self->ancestorStack_, idAttr));
     if (!styleAttr.empty()) {
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);

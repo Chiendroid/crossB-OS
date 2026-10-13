@@ -767,6 +767,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 94
+
+Complete caches use `94`; suspended partial caches use `0xCF`. The payload is
+unchanged. Fieldset containers now have a default outline and padding, with
+publisher CSS taking precedence. Both cache types rebuild to apply the updated
+wrapping, box decorations, and pagination.
+
 ### Version 93
 
 Complete caches use `93`; suspended caches use `0xCE`. After the render-mode

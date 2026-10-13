@@ -42,11 +42,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v89: C3 bitmap heading/CSS sizes change layout and cached font identities.
 // v90: S3 bitmap heading/CSS sizes now participate in layout.
 // v91: Figure containers apply publisher alignment and spacing to chapter ornaments.
-constexpr uint8_t SECTION_FILE_VERSION = 93;
+// v94: Fieldset defaults add bordered containers and change page layout.
+constexpr uint8_t SECTION_FILE_VERSION = 94;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xCE;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xCF;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
