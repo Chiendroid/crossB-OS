@@ -395,6 +395,7 @@ Result download(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry&
   work->inspector.reset();
   result = AssetCompanionStore::prepare(catalog, entry, endpoints, callbacks);
   if (result != Result::Ok) return failure(result);
+  if (callbacks.payloadStarted) callbacks.payloadStarted(callbacks.context);
   HttpDownloader::DownloadOptions options(false, false, [&] { return cancelled(callbacks); }, 1024);
   options.stageAsPart = true;
   options.requireBackupCleanup = true;

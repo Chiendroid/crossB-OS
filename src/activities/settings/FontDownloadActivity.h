@@ -165,5 +165,4 @@ class FontDownloadActivity : public Activity {
   int familyIndexFromList(int listIndex) const { return listIndex - specialRowCount(); }
   int listItemCount() const;
   size_t totalUpdateSize() const;
-  static void formatSize(size_t bytes, char* buffer, size_t bufferSize);
 };

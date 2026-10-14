@@ -43,6 +43,9 @@ class AssetDownloadActivity final : public Activity {
   bool cancelled_ = false;
   bool overwriteApproved_ = false;
   char progress_[64] = {};
+  // Fixed install stages (catalog, companions, payload); 0 hides the counter.
+  uint8_t step_ = 0;
+  char stepLabel_[32] = {};
   uint32_t lastProgressAt_ = 0;
   StrId phase_ = StrId::STR_LOADING;
   char url_[AssetDownloadService::MAX_URL] = {};
@@ -52,6 +55,8 @@ class AssetDownloadActivity final : public Activity {
   bool pollCancel();
   AssetDownloadService::Callbacks callbacks();
   void showBusy(StrId phase = StrId::STR_LOADING);
+  OptionPopup::Note busyNote();
+  void payloadStarted();
   void progress(size_t received, size_t total);
   void verifying();
   void installSelected();  // discover -> (confirm overwrite) -> download -> activate.

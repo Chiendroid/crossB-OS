@@ -255,7 +255,9 @@ bool downloadIndex(Workspace& w, size_t index) {
       },
       [&](size_t done, size_t total) {
         if (w.callbacks.progress)
-          w.callbacks.progress(w.callbacks.context, size_t(w.progressDone + done), size_t(w.progressDone + total));
+          // Unknown-length (chunked) indexes report received bytes only.
+          w.callbacks.progress(w.callbacks.context, size_t(w.progressDone + done),
+                               total ? size_t(w.progressDone + total) : 0);
       },
       "", "", options);
   const bool synced = file.sync();

@@ -26,6 +26,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/StringUtils.h"
 
 namespace fui = freeink::ui;
 
@@ -680,7 +681,7 @@ bool FontDownloadActivity::rebuildListItems() {
   size_t itemIndex = 0;
   if (showUpdateAllRow()) {
     char sizeLabel[32];
-    formatSize(totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
+    StringUtils::formatByteSize(totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
     snprintf(updateAllLabel_, sizeof(updateAllLabel_), "%s (%s)", tr(STR_UPDATE_ALL), sizeLabel);
     listItems_[itemIndex] = fui::ListItem{};
     listItems_[itemIndex].label = updateAllLabel_;
@@ -1216,17 +1217,6 @@ void FontDownloadActivity::loop() {
 }
 
 // --- Rendering ---
-
-void FontDownloadActivity::formatSize(const size_t bytes, char* const buffer, const size_t bufferSize) {
-  if (bufferSize == 0) return;
-  if (bytes >= 1024 * 1024) {
-    snprintf(buffer, bufferSize, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-  } else if (bytes >= 1024) {
-    snprintf(buffer, bufferSize, "%.0f KB", static_cast<double>(bytes) / 1024.0);
-  } else {
-    snprintf(buffer, bufferSize, "%zu B", bytes);
-  }
-}
 
 void FontDownloadActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();

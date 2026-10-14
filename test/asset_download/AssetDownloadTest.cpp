@@ -300,11 +300,20 @@ int main() {
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Missing);
   assert(!source.recoveryPending);
   assert(download(cat, entry, empty, false) == Result::Unavailable && downloads == 0);
-  bool verified = false;
+  struct Phases {
+    bool verified = false;
+    bool payloadStarted = false;
+  } phases;
   Callbacks phaseCallbacks;
-  phaseCallbacks.context = &verified;
-  phaseCallbacks.verifying = [](void* context) { *static_cast<bool*>(context) = true; };
-  assert(download(cat, entry, endpoints, false, phaseCallbacks) == Result::Ok && verified);
+  phaseCallbacks.context = &phases;
+  phaseCallbacks.verifying = [](void* context) { static_cast<Phases*>(context)->verified = true; };
+  // Payload stage starts only after companions are prepared and before its transfer.
+  phaseCallbacks.payloadStarted = [](void* context) {
+    assert(companionPreparations > 0 && downloads == 0);
+    static_cast<Phases*>(context)->payloadStarted = true;
+  };
+  assert(download(cat, entry, endpoints, false, phaseCallbacks) == Result::Ok && phases.verified);
+  assert(phases.payloadStarted);
   assert(files.at("/.crosspoint/languages/DE.yaml") == yaml && !files.count("/.crosspoint/languages/DE.yaml.old"));
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Current);
   assert(!source.recoveryPending);
@@ -315,7 +324,9 @@ int main() {
          std::string(source.path) == "/.crosspoint/languages/mine.yaml");
   files["/.crosspoint/languages/mine.yaml"] += "# edited\n";
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Different);
-  assert(download(cat, entry, endpoints, false) == Result::OverwriteRequired && downloads == 0);
+  phases.payloadStarted = false;
+  assert(download(cat, entry, endpoints, false, phaseCallbacks) == Result::OverwriteRequired && downloads == 0);
+  assert(!phases.payloadStarted);
   assert(download(cat, entry, endpoints, true) == Result::Ok && !files.count("/.crosspoint/languages/DE.yaml"));
   assert(files.at("/.crosspoint/languages/mine.yaml") == yaml);
   reset();

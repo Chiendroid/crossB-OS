@@ -23,6 +23,8 @@ struct Callbacks {
   bool (*cancelled)(void*) = nullptr;
   void (*progress)(void*, size_t, size_t) = nullptr;
   void (*verifying)(void*) = nullptr;
+  // Companions are verified on SD; the installable payload transfer starts next.
+  void (*payloadStarted)(void*) = nullptr;
 };
 // Firmware-owned approved prefixes, ending in '/'. Empty defaults fail closed.
 // No URL or redirect prefix comes from the catalog or user input.

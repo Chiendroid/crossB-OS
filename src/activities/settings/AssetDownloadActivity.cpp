@@ -16,6 +16,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "network/HttpDownloader.h"
+#include "util/StringUtils.h"
 
 // Deployment configuration is deliberately empty until official endpoints have
 // been approved and qualified. Catalog data cannot select a host or redirect.
@@ -109,7 +110,16 @@ AssetDownloadService::Callbacks AssetDownloadActivity::callbacks() {
           [](void* context, size_t received, size_t total) {
             static_cast<AssetDownloadActivity*>(context)->progress(received, total);
           },
-          [](void* context) { static_cast<AssetDownloadActivity*>(context)->verifying(); }};
+          [](void* context) { static_cast<AssetDownloadActivity*>(context)->verifying(); },
+          [](void* context) { static_cast<AssetDownloadActivity*>(context)->payloadStarted(); }};
+}
+OptionPopup::Note AssetDownloadActivity::busyNote() {
+  if (!step_) return OptionPopup::Note(I18N.get(phase_), progress_);
+  constexpr uint8_t STEP_COUNT = 3;
+  const StrId payloadName = kind_ == AssetCatalog::Kind::Translation ? StrId::STR_LANGUAGE : StrId::STR_ASSET_STEP_PACK;
+  const StrId names[STEP_COUNT] = {StrId::STR_ASSET_STEP_CATALOG, StrId::STR_ASSET_STEP_LICENSES, payloadName};
+  std::snprintf(stepLabel_, sizeof(stepLabel_), tr(STR_ASSET_STEP_FORMAT), unsigned(step_), unsigned(STEP_COUNT));
+  return OptionPopup::Note(stepLabel_, I18N.get(names[step_ - 1]), I18N.get(phase_), progress_);
 }
 void AssetDownloadActivity::showBusy(StrId phase) {
   {
@@ -120,11 +130,17 @@ void AssetDownloadActivity::showBusy(StrId phase) {
     progress_[0] = 0;
     lastProgressAt_ = 0;
     const StrId options[] = {StrId::STR_CANCEL};
-    popup_.show(
-        title(), options, 1, 0, [this](int) { cancelled_ = true; }, OptionPopup::Note(I18N.get(phase_), progress_));
+    popup_.show(title(), options, 1, 0, [this](int) { cancelled_ = true; }, busyNote());
     popup_.setCancelCallback([this] { cancelled_ = true; });
   }
   requestUpdateAndWait();
+}
+void AssetDownloadActivity::payloadStarted() {
+  // Replace the companion popup outside its callbacks; keep cancellation available.
+  const bool wasCancelled = cancelled_;
+  step_ = 3;
+  showBusy(StrId::STR_DOWNLOADING);
+  cancelled_ = wasCancelled;
 }
 void AssetDownloadActivity::progress(size_t received, size_t total) {
   if (phase_ == StrId::STR_ASSET_VERIFYING) {
@@ -137,12 +153,16 @@ void AssetDownloadActivity::progress(size_t received, size_t total) {
   lastProgressAt_ = now;
   {
     RenderLock lock(*this);
-    const unsigned percent = total ? unsigned((uint64_t(received) * 100) / total) : 0;
-    if (total)
-      std::snprintf(progress_, sizeof(progress_), "%u%%  %lu / %lu B", percent, static_cast<unsigned long>(received),
-                    static_cast<unsigned long>(total));
-    else
-      std::snprintf(progress_, sizeof(progress_), "%lu B", static_cast<unsigned long>(received));
+    char done[16];
+    StringUtils::formatByteSize(received, done, sizeof(done));
+    if (total) {
+      char size[16];
+      StringUtils::formatByteSize(total, size, sizeof(size));
+      const unsigned percent = unsigned((uint64_t(received) * 100) / total);
+      std::snprintf(progress_, sizeof(progress_), "%u%%  %s / %s", percent, done, size);
+    } else {
+      std::snprintf(progress_, sizeof(progress_), "%s", done);
+    }
   }
   requestUpdate(true);
 }
@@ -174,6 +194,7 @@ void AssetDownloadActivity::showError(StrId error, Pending next) {
 }
 void AssetDownloadActivity::fetch() {
   catalogReady_ = false;
+  step_ = 1;
   showBusy();
   AssetCatalog::Options parserOptions;
   parserOptions.expectedKind = kind_;
@@ -259,6 +280,7 @@ void AssetDownloadActivity::confirmOverwrite() {
   requestUpdate();
 }
 void AssetDownloadActivity::installSelected() {
+  step_ = 0;  // Local SD check only; no transfer.
   showBusy(StrId::STR_ASSET_VERIFYING);
   const auto result = AssetDownloadService::discover(kind_, catalog_->entries[selected_], source_, callbacks());
   busy_ = false;
@@ -278,6 +300,7 @@ void AssetDownloadActivity::installSelected() {
                                                                                            : Pending::Download;
 }
 void AssetDownloadActivity::download() {
+  step_ = 2;  // Companion indexes and files; payloadStarted() advances to the payload.
   showBusy(StrId::STR_DOWNLOADING);
   const auto result = AssetDownloadService::download(*catalog_, catalog_->entries[selected_], endpoints_,
                                                      overwriteApproved_, callbacks());
@@ -305,6 +328,7 @@ void AssetDownloadActivity::activate() {
     return;
   }
   // Recheck the local source before activation; download never selects it.
+  step_ = 0;
   showBusy(StrId::STR_ASSET_VERIFYING);
   const auto& entry = catalog_->entries[selected_];
   const auto found = AssetDownloadService::discover(kind_, entry, source_, callbacks());
