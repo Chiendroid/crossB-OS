@@ -22,11 +22,13 @@
 extern uint32_t testHyphenationIdentity;
 
 namespace {
-constexpr uint8_t kFullVersion = 94;
+constexpr uint8_t kFullVersion = 95;
+constexpr uint8_t kPreImageAlignmentFullVersion = 94;
+constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xCF;
+constexpr uint8_t kPartialVersion = 0xD0;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -180,13 +182,27 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion :
-       {kPreFieldsetFullVersion, kPreFieldsetPartialVersion, kS3BitmapFullVersion, kS3BitmapPartialVersion,
-        kC3BitmapFullVersion, kC3BitmapPartialVersion, kPreviousFullVersion, kPreviousPartialVersion,
-        kParagraphSpacingFullVersion, kParagraphSpacingPartialVersion, kBorderSuppressionFullVersion,
-        kBorderSuppressionPartialVersion, kOlderFullVersion, kOlderPartialVersion, kEarlierFullVersion,
-        kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
-        kPreviousReleasePrepPartialVersion}) {
+  for (const uint8_t staleVersion : {kPreImageAlignmentFullVersion,
+                                     kPreImageAlignmentPartialVersion,
+                                     kPreFieldsetFullVersion,
+                                     kPreFieldsetPartialVersion,
+                                     kS3BitmapFullVersion,
+                                     kS3BitmapPartialVersion,
+                                     kC3BitmapFullVersion,
+                                     kC3BitmapPartialVersion,
+                                     kPreviousFullVersion,
+                                     kPreviousPartialVersion,
+                                     kParagraphSpacingFullVersion,
+                                     kParagraphSpacingPartialVersion,
+                                     kBorderSuppressionFullVersion,
+                                     kBorderSuppressionPartialVersion,
+                                     kOlderFullVersion,
+                                     kOlderPartialVersion,
+                                     kEarlierFullVersion,
+                                     kEarlierPartialVersion,
+                                     kLastReleaseFullVersion,
+                                     kLastReleasePartialVersion,
+                                     kPreviousReleasePrepPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);

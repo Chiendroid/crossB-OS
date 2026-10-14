@@ -78,6 +78,7 @@
 - Honor EPUB heading and text sizes with installed `.cpfont` sizes on ESP32-S3 readers.
 - Center EPUB chapter ornaments inside publisher-styled figures and preserve their spacing beneath chapter titles.
 - Use fonts embedded in EPUBs on ESP32-S3 readers, with Off, Ignore Body Font, and All Text modes in global Reader → Font Options below TTF Rendering (when available) and each book’s Font menu below Reader Font.
+- Preserve publisher centering and alignment for image-only EPUB paragraphs when reader text alignment is overridden (#856).
 
 ### Changed
 
