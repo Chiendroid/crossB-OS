@@ -43,6 +43,9 @@ struct BookSyncFile {
   // Filename matching gives the renamed book a new id, so the old entry goes.
   static void onRenamed(const std::string& oldPath, const std::string& newPath);
   static void onDeleted(const std::string& bookPath);
+  // A replacement keeps catch-up history, but must not reuse an id derived
+  // from the old bytes (even when the new file has the same size).
+  static bool onFileChanged(const std::string& bookPath);
   // First-walk stamps: the walk with this id already finished the book.
   static void stampWalk(const std::string& bookPath, uint32_t walkId);
   static bool walkStamped(const std::string& bookPath, uint32_t walkId);

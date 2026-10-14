@@ -579,7 +579,11 @@ void handleWrite() {
     return;
   }
 
-  clearCachesForPath(path);
+  if (!clearBookCachePreservingUserState(path, true)) {
+    LOG_ERR("USB", "File saved but cache refresh failed: %s", path);
+    writeLine("ERR:cache_refresh_failed\n");
+    return;
+  }
   ImageFolderIndex::invalidateForPath(path);
   sdFontSystem.markRegistryDirtyForPath(path);
   writeLine("OK\n");
@@ -637,7 +641,11 @@ void handleRename() {
   if (Storage.rename(src, dst)) {
     library::invalidateLibraryIndex();
     clearCachesForPath(src);
-    clearCachesForPath(dst);
+    if (!clearBookCachePreservingUserState(dst, true)) {
+      LOG_ERR("USB", "File moved but cache refresh failed: %s", dst);
+      writeLine("ERR:cache_refresh_failed\n");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(src);
     sdFontSystem.markRegistryDirtyForPath(src);
     ImageFolderIndex::invalidateForPath(dst);

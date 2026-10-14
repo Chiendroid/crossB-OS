@@ -945,7 +945,14 @@ void OpdsBookBrowserActivity::downloadBook(DownloadRequest request, const std::s
 void OpdsBookBrowserActivity::finishDownload(DownloadRequest request, const HttpDownloader::DownloadError result,
                                              const std::string& resolvedPath) {
   if (result == HttpDownloader::OK) {
-    clearBookCache(resolvedPath);
+    if (!clearBookCachePreservingUserState(resolvedPath, true)) {
+      LOG_ERR("OPDS", "File saved but cache refresh failed: %s", resolvedPath.c_str());
+      RenderLock lock;
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_DOWNLOAD_FAILED);
+      requestUpdate();
+      return;
+    }
     restoreCatalogAfterDownload();
   } else if (result == HttpDownloader::FILE_EXISTS) {
     restoreCatalogAfterDownload();

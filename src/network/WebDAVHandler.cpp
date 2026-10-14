@@ -437,7 +437,11 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
-  clearBookCachePreservingUserState(path.c_str());
+  if (!clearBookCachePreservingUserState(path.c_str(), true)) {
+    LOG_ERR("DAV", "File saved but cache refresh failed: %s", path.c_str());
+    s.send(500, "text/plain", "File saved, but could not refresh cached reading/sync data");
+    return;
+  }
   ImageFolderIndex::invalidateForPath(path.c_str());
   sdFontSystem.markRegistryDirtyForPath(path.c_str());
   s.send(_putExisted ? 204 : 201);
@@ -617,6 +621,11 @@ void WebDAVHandler::handleMove(WebServer& s) {
 
   if (success) {
     clearBookCache(srcPath.c_str());
+    if (!clearBookCachePreservingUserState(dstPath.c_str(), true)) {
+      LOG_ERR("DAV", "File moved but cache refresh failed: %s", dstPath.c_str());
+      s.send(500, "text/plain", "File moved, but could not refresh cached reading/sync data");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(srcPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(srcPath.c_str());
     ImageFolderIndex::invalidateForPath(dstPath.c_str());
@@ -723,6 +732,11 @@ void WebDAVHandler::handleCopy(WebServer& s) {
   dstFile.close();
 
   if (copyOk) {
+    if (!clearBookCachePreservingUserState(dstPath.c_str(), true)) {
+      LOG_ERR("DAV", "File copied but cache refresh failed: %s", dstPath.c_str());
+      s.send(500, "text/plain", "File copied, but could not refresh cached reading/sync data");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(dstPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
     s.send(dstExists ? 204 : 201);

@@ -12,6 +12,7 @@
 
 #include "SyncFiles.h"
 #include "SyncIds.h"
+#include "SyncPending.h"
 #include "activities/reader/BookReadingStats.h"
 
 namespace {
@@ -170,6 +171,40 @@ void BookSyncFile::onRenamed(const std::string& oldPath, const std::string& newP
 }
 
 void BookSyncFile::onDeleted(const std::string& bookPath) { SyncIds::removePath(bookPath); }
+
+bool BookSyncFile::onFileChanged(const std::string& bookPath) {
+  const std::string cachePath = cachePathFor(bookPath);
+  if (cachePath.empty() || !Storage.exists(cachePath.c_str())) return true;
+
+  BookSyncFile record;
+  if (read(cachePath, record)) {
+    record.hasId = false;
+    memset(record.id, 0, sizeof(record.id));
+    record.fileSize = 0;
+    record.idsGeneration = 0;
+    // Refresh both the main record and its backup so recovery cannot bring
+    // back the old file's id. Keep the catch-up and first-walk stamps intact.
+    if (!write(cachePath, record) || !write(cachePath, record)) return false;
+  } else {
+    const std::string path = cachePath + FILE_NAME;
+    if (Storage.exists(path.c_str()) || Storage.exists((path + ".bak").c_str()) ||
+        Storage.exists((path + ".tmp").c_str())) {
+      LOG_ERR("SYNC", "Cannot preserve unreadable book sync history: %s", bookPath.c_str());
+      return false;
+    }
+  }
+
+  // A deleted/reuploaded book may have lost its pending entry. Requeue its
+  // saved data under the fresh id, respecting the configured sync toggles.
+  const uint8_t pendingBits = FsHelpers::hasEpubExtension(bookPath)
+                                  ? SyncPending::PROGRESS_BIT | SyncPending::STATS_BIT | SyncPending::CLIPPINGS_BIT
+                                  : SyncPending::STATS_BIT;
+  if (!SyncIds::removePath(bookPath) || !SyncPending::mark(bookPath, pendingBits)) {
+    LOG_ERR("SYNC", "Cannot refresh book sync tracking: %s", bookPath.c_str());
+    return false;
+  }
+  return true;
+}
 
 void BookSyncFile::stampWalk(const std::string& bookPath, const uint32_t walkId) {
   const std::string cachePath = cachePathFor(bookPath);

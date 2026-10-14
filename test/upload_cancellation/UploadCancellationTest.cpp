@@ -56,7 +56,12 @@ struct ImageFolderIndex {
   static void invalidateForPath(const char*) {}
 };
 unsigned cacheClears = 0;
-void clearBookCachePreservingUserState(const char*) { ++cacheClears; }
+bool cacheRefreshSucceeds = true;
+bool clearBookCachePreservingUserState(const char*, bool sourceChanged) {
+  assert(sourceChanged);
+  ++cacheClears;
+  return cacheRefreshSucceeds;
+}
 unsigned long millis() { return 100; }
 unsigned long uploadStartTime = 0;
 struct FontInstaller {
@@ -207,6 +212,17 @@ int main() {
     send(failed, false, UPLOAD_FILE_ABORTED);
     assert(Storage.removed.size() == 1);
   }
+  // A completed upload with failed cache/sync preservation reports failure,
+  // but keeps the saved file and the preserved reading data for recovery.
+  Storage.removed.clear();
+  cacheRefreshSucceeds = false;
+  CrossPointWebServer cacheFailed;
+  send(cacheFailed, false, UPLOAD_FILE_WRITE, 80);
+  send(cacheFailed, false, UPLOAD_FILE_END);
+  assert(!cacheFailed.upload.success && !cacheFailed.upload.error.isEmpty());
+  assert(!cacheFailed.upload.file.isOpen() && Storage.removed.empty());
+  cacheRefreshSucceeds = true;
+
   // Exercise production font WRITE/END handlers, not only validation cleanup.
   for (const char* extension : {".ttf", ".OTF", ".cpfont"}) {
     for (int failure = 0; failure < 5; ++failure) {

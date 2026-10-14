@@ -1086,7 +1086,12 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         String filePath = state.path;
         if (!filePath.endsWith("/")) filePath += "/";
         filePath += state.fileName;
-        clearBookCachePreservingUserState(filePath.c_str());
+        if (!clearBookCachePreservingUserState(filePath.c_str(), true)) {
+          state.success = false;
+          state.error = "File saved, but could not refresh cached reading/sync data";
+          LOG_ERR("WEB", "%s: %s", state.error.c_str(), filePath.c_str());
+          return;
+        }
         ImageFolderIndex::invalidateForPath(filePath.c_str());
         sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
       }
@@ -1381,6 +1386,11 @@ void CrossPointWebServer::handleMove() const {
 
   if (success) {
     LOG_DBG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());
+    if (!clearBookCachePreservingUserState(newPath.c_str(), true)) {
+      LOG_ERR("WEB", "File moved but cache refresh failed: %s", newPath.c_str());
+      server->send(500, "text/plain", "File moved, but could not refresh cached reading/sync data");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(itemPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
     ImageFolderIndex::invalidateForPath(newPath.c_str());
@@ -2228,7 +2238,12 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
             wsLastCompleteSize = 0;
             wsLastCompleteAt = millis();
             LOG_DBG("WS", "Zero-byte upload complete: %s", filePath.c_str());
-            clearBookCachePreservingUserState(filePath.c_str());
+            if (!clearBookCachePreservingUserState(filePath.c_str(), true)) {
+              wsLastCompleteName = "";
+              LOG_ERR("WS", "File saved but cache refresh failed: %s", filePath.c_str());
+              wsServer->sendTXT(num, "ERROR:File saved, but could not refresh cached reading/sync data");
+              return;
+            }
             ImageFolderIndex::invalidateForPath(filePath.c_str());
             sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
             wsServer->sendTXT(num, "DONE");
@@ -2297,7 +2312,12 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         String filePath = wsUploadPath;
         if (!filePath.endsWith("/")) filePath += "/";
         filePath += wsUploadFileName;
-        clearBookCachePreservingUserState(filePath.c_str());
+        if (!clearBookCachePreservingUserState(filePath.c_str(), true)) {
+          wsLastCompleteName = "";
+          LOG_ERR("WS", "File saved but cache refresh failed: %s", filePath.c_str());
+          wsServer->sendTXT(num, "ERROR:File saved, but could not refresh cached reading/sync data");
+          return;
+        }
         ImageFolderIndex::invalidateForPath(filePath.c_str());
         sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
 

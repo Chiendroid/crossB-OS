@@ -656,8 +656,11 @@ folder already exists.
 
 Version 1 records are read with both new fields 0.
 
-No EPUB cache format version changes; deleting `sync.bin` only means the id is
-recomputed and an unfinished catch-up resends that book.
+Cache clears preserve `sync.bin` and its `.bak`/`.tmp` recovery files. File
+replacements clear the cached document id and map generation in both the main
+record and backup, retaining the catch-up and first-walk stamps. Saved data is
+queued for sync again; the next document lookup recalculates the id even when
+the replacement has the same file size. No binary format version changes.
 
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
