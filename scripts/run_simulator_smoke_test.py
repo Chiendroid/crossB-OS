@@ -327,6 +327,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
         if args.font_size_book:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
+        if args.font_recovery:
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_RECOVERY"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
         if args.receive_folder:
             env["CROSSINK_SIMULATOR_SMOKE_RECEIVE_FOLDER"] = "1"
@@ -410,6 +412,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not reject the obsolete translation contract", file=sys.stderr)
         return 2
 
+    if args.font_recovery and "Simulator smoke test passed: font recovery" not in proc.stdout:
+        print("Simulator did not complete the font recovery checks", file=sys.stderr)
+        return 2
+
     if args.c3_font_sizes and "Simulator smoke test passed: bitmap font sizes" not in proc.stdout:
         print("Simulator did not complete the bitmap font-size checks", file=sys.stderr)
         return 2
@@ -454,6 +460,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
+    parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")
     parser.add_argument("--timeout", type=int, help="Seconds before the simulator run is treated as hung (default: 120, or 180 for frontlight layout, about, support export, or filename font checks)")
     parser.add_argument("--page-turns", type=int, default=2, help="Number of EPUB page-forward taps to run")

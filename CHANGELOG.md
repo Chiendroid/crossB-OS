@@ -27,15 +27,12 @@
 - Adds batched folder syncing for book progress, reading stats, and clippings when servers support it
 - Render EPUB headings and CSS font sizes on X3/X4 using available bitmap sizes; optional SD sizes stay within a small memory budget and fall back safely when memory is tight.
 - Choose whether the built-in EPUB upload optimizer removes embedded fonts; removal is on by default and can be remembered in the browser.
-
 - Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
 
 ### Fixed
 
 - Explain OPDS feed failures caused by credentials, withheld credentials across origins, server errors, or no response (adapted from Marco Rojas, CrossPoint #3872).
-
 - Sync accurate KOReader positions for bare body text and nested div/span content, skip whitespace-only anchors, and keep chapter-end progress in real text (CrossPoint #3923).
-
 - Complete missing translations in all 27 community languages, use concise UI labels, and support complete built-in language tables without increasing offset-table size.
 - Reduce SD-font cache allocations while preserving kerning and dictionary ligatures, including failed kerning loads (adapted from serialx, CrossPoint #3831 and #3838).
 - Resolve EPUB3 series refinements by collection ID even when interleaved or declared out of order, and refresh stale book/library metadata (series parser adapted from jadehawk, CrossPoint #3804).
@@ -79,6 +76,7 @@
 - Center EPUB chapter ornaments inside publisher-styled figures and preserve their spacing beneath chapter titles.
 - Use fonts embedded in EPUBs on ESP32-S3 readers, with Off, Ignore Body Font, and All Text modes in global Reader → Font Options below TTF Rendering (when available) and each book’s Font menu below Reader Font.
 - Preserve publisher centering and alignment for image-only EPUB paragraphs when reader text alignment is overridden (#856).
+- Preserve the selected SD reader font when font details temporarily cannot load, and free Download Fonts catalog memory before restoring it (#855).
 
 ### Changed
 
