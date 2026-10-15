@@ -23,6 +23,7 @@
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
 #include "ReadingUploadSmokeTest.h"
+#include "SilentRestart.h"
 #include "StatsUploadSmokeTest.h"
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
@@ -49,6 +50,7 @@
 #include "HyphenationPackStore.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "ReleaseNotes.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "SupportInfoExport.h"
@@ -77,11 +79,13 @@
 #include "activities/reader/TxtReaderActivity.h"
 #include "activities/reader/XtcReaderActivity.h"
 #include "activities/settings/AboutActivity.h"
+#include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
 #include "activities/settings/FrontlightTimePickerActivity.h"
 #include "activities/settings/HyphenationManagerActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/QuickActionsActivity.h"
+#include "activities/settings/ReleaseNotesActivity.h"
 #include "activities/settings/ScreenCalibrationActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
@@ -1043,6 +1047,15 @@ class NavigationPickerSmokeActivity final : public Activity {
   }
 };
 
+// While armed, network reboot requests are recorded here instead of relaunching the simulator,
+// so a scenario can check the boot target and keep driving the same process.
+struct CapturedNetworkRestart {
+  bool armed = false;
+  int count = 0;
+  uint32_t target = 0;
+  uint32_t payload = 0;
+} capturedNetworkRestart;
+
 class SimulatorSmokeTest {
  public:
   void tick() {
@@ -1132,6 +1145,12 @@ class SimulatorSmokeTest {
   unsigned hyphenationPhase = 0;
   unsigned aboutPhase = 0;
   unsigned aboutPass = 0;
+  unsigned releaseNotesPhase = 0;
+  unsigned releaseNotesWait = 0;
+  unsigned releaseNotesPass = 0;
+  int releaseNotesPortraitPages = 0;
+  int releaseNotesPortraitWidth = 0;
+  std::vector<uint8_t> releaseNotesHintStrip;
   uint32_t aboutSnapshotUptime = 0;
   unsigned homeThemePass = 0;
   unsigned calibrationPhase = 0;
@@ -4018,6 +4037,382 @@ class SimulatorSmokeTest {
     }
   }
 
+  // What's New: shown once over Home, Close marks it seen and saves, Settings reopens it without touching that state.
+  void tickReleaseNotes() {
+    if (scriptIndex < inputScript.size()) {
+      runReaderInputScript();
+      return;
+    }
+    inputScript.clear();
+    scriptIndex = 0;
+    switch (releaseNotesPhase) {
+      case 0: {
+        // A fresh state file has revision 0, so Home hands over to What's New on its own.
+        if (!activityManager.isCurrentActivityNamed("ReleaseNotes")) {
+          if (++releaseNotesWait > 600) fail("What's New was not shown over Home on a fresh state");
+          return;
+        }
+        auto* notes = dynamic_cast<ReleaseNotesActivity*>(activityManager.simulatorCurrentActivity());
+        if (!notes) fail("What's New activity type mismatch");
+        if (APP_STATE.releaseNotesSeen != 0) fail("What's New was marked seen before it was dismissed");
+        if (std::strcmp(I18N.getCode(), "EN")) fail("Release notes smoke expects the English UI");
+        if (!I18N.hasTranslation(StrId::STR_WHATS_NEW) || releaseNotesNeedLanguageUpdate() ||
+            notes->simulatorUpdateOffered())
+          fail("English must offer Install Languages, not Update");
+        if (notes->simulatorPageCount() < 1) fail("What's New has no pages");
+        if (notes->simulatorPageCount() > 1) {
+          addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+          addTap(mappedInputManager.menuButton(MappedInputManager::Button::Up));
+        }
+        inputScript.push_back(render("What's New over Home", 4));
+        releaseNotesPhase = 1;
+        break;
+      }
+      case 1:
+        captureStatusBarScreen("release-notes-first-run");
+        addTap(MappedInputManager::Button::Back);
+        inputScript.push_back(render("What's New closed", 6));
+        releaseNotesPhase = 2;
+        releaseNotesWait = 0;
+        break;
+      case 2: {
+        if (activityManager.isCurrentActivityNamed("ReleaseNotes")) fail("What's New did not close");
+        if (APP_STATE.releaseNotesSeen != RELEASE_NOTES_REVISION) fail("Close did not mark What's New seen");
+        const String saved = Storage.readFile(CrossPointState::getFilePath());
+        JsonDocument doc;
+        if (deserializeJson(doc, saved) || doc["releaseNotesSeen"].as<int>() != RELEASE_NOTES_REVISION)
+          fail("Close did not save releaseNotesSeen");
+        if (++releaseNotesWait < 60) return;  // Stay on Home long enough for a repeat push to show up.
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home after closing What's New");
+        // Reopen from Settings with an unseen revision: it must not touch the stored value.
+        APP_STATE.releaseNotesSeen = 0;
+        activityManager.goToSettings();
+        queueStep("Settings for Release Notes", SmokeStep::Start, 4);
+        releaseNotesPhase = 3;
+        break;
+      }
+      case 3: {
+        const auto settings = buildSystemSettingsParentList(getSettingsList());
+        if (settings.size() < 2 || settings[settings.size() - 2].action != SettingAction::ReleaseNotes ||
+            settings.back().action != SettingAction::About)
+          fail("Release Notes row is not directly above About");
+        for (int i = 0; i < 3; ++i) addTap(MappedInputManager::Button::Confirm);
+        inputScript.push_back(render("Release Notes System tab", 3));
+        for (size_t i = 0; i < settings.size(); ++i)
+          addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        addTap(mappedInputManager.menuButton(MappedInputManager::Button::Up));
+        addTap(MappedInputManager::Button::Confirm);
+        inputScript.push_back(render("Release Notes opened from Settings", 4));
+        inputScript.push_back(assertActivity("ReleaseNotes"));
+        releaseNotesPhase = 4;
+        break;
+      }
+      case 4:
+        if (APP_STATE.releaseNotesSeen != 0) fail("Opening Release Notes from Settings changed the seen revision");
+        captureStatusBarScreen("release-notes-from-settings");
+        addTap(MappedInputManager::Button::Back);
+        inputScript.push_back(render("Release Notes closed to Settings", 4));
+        inputScript.push_back(assertActivity("Settings"));
+        releaseNotesPhase = 5;
+        break;
+      case 5:
+        if (APP_STATE.releaseNotesSeen != 0) fail("Leaving Release Notes from Settings changed the seen revision");
+        // Saved German that is not installed (upgrade from built-in translations) gets one-click Update,
+        // until an update was tried for this revision. English and unknown custom codes never do.
+        if (!releaseNotesOfferLanguageUpdate("DE", "EN", 0)) fail("Saved but inactive German should offer Update");
+        if (releaseNotesOfferLanguageUpdate("DE", "EN", RELEASE_NOTES_REVISION))
+          fail("Update must not be offered again after it was tried");
+        if (releaseNotesOfferLanguageUpdate("EN", "EN", 0)) fail("English must not offer Update");
+        if (releaseNotesOfferLanguageUpdate("XX-CUSTOM", "EN", 0)) fail("Custom languages must not offer Update");
+        activityManager.goHome();
+        queueStep("Home before What's New Install Languages", SmokeStep::Start, 4);
+        releaseNotesPhase = 6;
+        break;
+      case 6:
+        // FirstRun Install Languages: Settings > System > Device with the Download Languages popup, and the notes seen.
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home before What's New Install Languages");
+        saveReleaseNotesState(0, RELEASE_NOTES_REVISION);
+        openFirstRunReleaseNotes("What's New for Install Languages");
+        releaseNotesPhase = 7;
+        break;
+      case 7:
+        if (currentReleaseNotes().simulatorUpdateOffered()) fail("English What's New must offer Install Languages");
+        addTap(MappedInputManager::Button::Confirm);
+        inputScript.push_back(render("What's New Install Languages", 6));
+        inputScript.push_back(assertActivity("Settings"));
+        releaseNotesPhase = 8;
+        break;
+      case 8: {
+        auto* settings = dynamic_cast<SettingsActivity*>(activityManager.simulatorCurrentActivity());
+        if (!settings) fail("Install Languages did not open Settings");
+        if (settings->simulatorActiveSubmenu() != SettingAction::SystemDevice)
+          fail("Install Languages did not land in System > Device");
+        if (!settings->simulatorLanguageDownloadsOpen()) fail("Install Languages did not open Download Languages");
+        if (APP_STATE.releaseNotesSeen != RELEASE_NOTES_REVISION ||
+            savedStateValue("releaseNotesSeen") != RELEASE_NOTES_REVISION)
+          fail("Install Languages did not save releaseNotesSeen");
+        {
+          RenderLock lock;
+          captureStatusBarScreen("release-notes-download-languages");
+        }
+        activityManager.goHome();
+        queueStep("Home before What's New Update", SmokeStep::Start, 4);
+        releaseNotesPhase = 9;
+        break;
+      }
+      case 9:
+        // Update: a saved German preference that is not active offers the one-click language download.
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home before What's New Update");
+        std::snprintf(SETTINGS.languageCode, sizeof(SETTINGS.languageCode), "%s", "DE");
+        saveReleaseNotesState(0, 0);
+        capturedNetworkRestart = CapturedNetworkRestart{};
+        capturedNetworkRestart.armed = true;
+        openFirstRunReleaseNotes("What's New for Update");
+        releaseNotesPhase = 10;
+        break;
+      case 10:
+        if (!currentReleaseNotes().simulatorUpdateOffered()) fail("Saved inactive German must offer Update");
+        {
+          RenderLock lock;
+          captureStatusBarScreen("release-notes-update-offered");
+        }
+        addTap(MappedInputManager::Button::Confirm);
+        inputScript.push_back(render("What's New Update", 4));
+        releaseNotesPhase = 11;
+        break;
+      case 11: {
+        const uint32_t payload = AssetDownloadActivity::bootPayload(AssetCatalog::Kind::Translation,
+                                                                    static_cast<uint8_t>(I18n::languageFromCode("DE")));
+        if (capturedNetworkRestart.count != 1 ||
+            capturedNetworkRestart.target != static_cast<uint32_t>(NetworkBootTarget::DOWNLOAD_ASSETS) ||
+            capturedNetworkRestart.payload != payload)
+          fail("Update did not request one German language download reboot (count=%d target=%u payload=%u)",
+               capturedNetworkRestart.count, capturedNetworkRestart.target, capturedNetworkRestart.payload);
+        if (APP_STATE.releaseNotesUpdateTried != RELEASE_NOTES_REVISION ||
+            savedStateValue("releaseNotesUpdateTried") != RELEASE_NOTES_REVISION)
+          fail("Update did not save releaseNotesUpdateTried");
+        if (APP_STATE.releaseNotesSeen != 0 || savedStateValue("releaseNotesSeen") != 0)
+          fail("Update marked What's New seen before the translated notes were shown");
+        // A real device has rebooted by now; leaving must still not mark the notes seen.
+        addTap(MappedInputManager::Button::Back);
+        inputScript.push_back(render("What's New closed after Update", 4));
+        releaseNotesPhase = 12;
+        break;
+      }
+      case 12:
+        if (APP_STATE.releaseNotesSeen != 0 || savedStateValue("releaseNotesSeen") != 0)
+          fail("Leaving after Update marked What's New seen");
+        capturedNetworkRestart.armed = false;
+        std::snprintf(SETTINGS.languageCode, sizeof(SETTINGS.languageCode), "%s", "EN");
+        if (!SETTINGS.saveToFile()) fail("Cannot restore the English language setting");
+#if CROSSINK_APP_CAP_TOUCH
+        releaseNotesPhase = 13;
+#else
+        releaseNotesPhase = 17;
+#endif
+        activityManager.goHome();
+        queueStep("Home after What's New Update", SmokeStep::Start, 4);
+        break;
+#if CROSSINK_APP_CAP_TOUCH
+      case 13:
+        // Touch: only a completed tap on Later dismisses; a swipe that starts on the buttons pages.
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home before What's New touch checks");
+        saveReleaseNotesState(0, RELEASE_NOTES_REVISION);
+        openFirstRunReleaseNotes("What's New for touch");
+        releaseNotesPhase = 14;
+        break;
+      case 14: {
+        const auto& notes = currentReleaseNotes();
+        if (notes.simulatorPageCount() < 2) fail("Touch swipe check needs a multi-page What's New");
+        const Rect later = notes.simulatorActionRect(1);
+        if (later.width <= 0 || later.height <= 0) fail("What's New has no Later button");
+        const int x = later.x + later.width / 2;
+        const int y = later.y + later.height / 2;
+        inputScript = {touchDown(x, y),
+                       touchMove(x, y - 120),
+                       touchMove(x, y - 240),
+                       touchRelease(x, y - 240),
+                       render("What's New swipe from Later", 4),
+                       assertActivity("ReleaseNotes")};
+        releaseNotesPhase = 15;
+        break;
+      }
+      case 15: {
+        const auto& notes = currentReleaseNotes();
+        if (notes.simulatorPage() != 1) fail("Swipe from Later did not page (page=%d)", notes.simulatorPage());
+        if (APP_STATE.releaseNotesSeen != 0) fail("Swipe from Later marked What's New seen");
+        const Rect later = notes.simulatorActionRect(1);
+        const int x = later.x + later.width / 2;
+        const int y = later.y + later.height / 2;
+        inputScript = {touchDown(x, y), touchRelease(x, y), render("What's New Later tapped", 6),
+                       assertActivity("Home")};
+        releaseNotesPhase = 16;
+        break;
+      }
+      case 16:
+        if (APP_STATE.releaseNotesSeen != RELEASE_NOTES_REVISION ||
+            savedStateValue("releaseNotesSeen") != RELEASE_NOTES_REVISION)
+          fail("Later tap did not save releaseNotesSeen");
+        releaseNotesPhase = 17;
+        break;
+#endif
+      case 17:
+        // Landscape: rotating an open What's New rebuilds its pages, and every page stays clear of the hints.
+        if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home before What's New landscape checks");
+        saveReleaseNotesState(0, RELEASE_NOTES_REVISION);
+        openFirstRunReleaseNotes("What's New for landscape");
+        releaseNotesPhase = 18;
+        break;
+      case 18: {
+        auto& notes = currentReleaseNotes();
+        if (renderer.getOrientation() != GfxRenderer::Orientation::Portrait) fail("Landscape check expects portrait");
+        releaseNotesPortraitPages = notes.simulatorPageCount();
+        releaseNotesPortraitWidth = notes.simulatorLayoutWidth();
+        rotateReleaseNotes(notes, releaseNotesPass == 0 ? GfxRenderer::Orientation::LandscapeClockwise
+                                                        : GfxRenderer::Orientation::LandscapeCounterClockwise);
+        releaseNotesPhase = 19;
+        break;
+      }
+      case 19:
+        checkReleaseNotesLandscapePage(true);
+        releaseNotesPhase = 20;
+        break;
+      case 20: {
+        auto& notes = currentReleaseNotes();
+        if (notes.simulatorPage() + 1 < notes.simulatorPageCount()) {
+          addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+          inputScript.push_back(render("What's New landscape next page", 3));
+          releaseNotesPhase = 21;
+          break;
+        }
+        if (++releaseNotesPass < 2) {
+          rotateReleaseNotes(notes, GfxRenderer::Orientation::LandscapeCounterClockwise);
+          releaseNotesPhase = 19;
+          break;
+        }
+        rotateReleaseNotes(notes, GfxRenderer::Orientation::Portrait);
+        releaseNotesPhase = 22;
+        break;
+      }
+      case 21:
+        checkReleaseNotesLandscapePage(false);
+        releaseNotesPhase = 20;
+        break;
+      case 22: {
+        const auto& notes = currentReleaseNotes();
+        if (notes.simulatorLayoutWidth() != releaseNotesPortraitWidth ||
+            notes.simulatorPageCount() != releaseNotesPortraitPages)
+          fail("Rotating back to portrait did not restore the portrait pages");
+        addTap(MappedInputManager::Button::Back);
+        inputScript.push_back(render("What's New closed after rotation", 4));
+        inputScript.push_back(assertActivity("Home"));
+        releaseNotesPhase = 23;
+        break;
+      }
+      case 23:
+        LOG_INF(
+            "SMOKE",
+            "Simulator smoke test passed: release notes shown once over Home, Close saves seen, Settings row "
+            "opens notes without changing seen, English offers Install Languages, saved inactive language offers "
+            "Update, "
+            "Install Languages opens Download Languages, Update reboots to the language download without marking seen"
+#if CROSSINK_APP_CAP_TOUCH
+            ", Later tap dismisses but a swipe from the buttons pages"
+#endif
+            ", landscape rebuilds pages clear of the button hints");
+        std::_Exit(0);
+    }
+  }
+
+  static void saveReleaseNotesState(const uint16_t seen, const uint16_t updateTried) {
+    APP_STATE.releaseNotesSeen = seen;
+    APP_STATE.releaseNotesUpdateTried = updateTried;
+    if (!APP_STATE.saveToFile()) fail("Cannot save release notes state");
+  }
+
+  static int savedStateValue(const char* key) {
+    const String saved = Storage.readFile(CrossPointState::getFilePath());
+    JsonDocument doc;
+    if (deserializeJson(doc, saved)) fail("Cannot parse saved state");
+    return doc[key] | -1;
+  }
+
+  static ReleaseNotesActivity& currentReleaseNotes() {
+    auto* notes = dynamic_cast<ReleaseNotesActivity*>(activityManager.simulatorCurrentActivity());
+    if (!notes) fail("Expected What's New to be the current activity");
+    return *notes;
+  }
+
+  void openFirstRunReleaseNotes(const char* label) {
+    activityManager.pushActivity(
+        std::make_unique<ReleaseNotesActivity>(renderer, mappedInputManager, ReleaseNotesActivity::Mode::FirstRun));
+    inputScript.push_back(render(label, 4));
+    inputScript.push_back(assertActivity("ReleaseNotes"));
+  }
+
+  void rotateReleaseNotes(ReleaseNotesActivity& notes, const GfxRenderer::Orientation orientation) {
+    {
+      RenderLock lock;
+      renderer.setOrientation(orientation);
+      notes.simulatorSetPage(0);
+    }
+    inputScript.push_back(render("What's New rotated", 4));
+  }
+
+  // Pages must be rebuilt for the rotated screen, the text and header stay inside the area the hints leave free,
+  // and the hint strip itself looks the same on every page, so no page draws text under it.
+  void checkReleaseNotesLandscapePage(const bool firstPage) {
+    const auto& notes = currentReleaseNotes();
+    {
+      RenderLock lock;
+      char name[64];
+      std::snprintf(name, sizeof(name), "release-notes-landscape-%s-page-%d", releaseNotesPass == 0 ? "cw" : "ccw",
+                    notes.simulatorPage() + 1);
+      captureStatusBarScreen(name);
+    }
+    const int width = renderer.getScreenWidth();
+    const int height = renderer.getScreenHeight();
+    if (width <= height) fail("What's New landscape check is not in landscape");
+    if (notes.simulatorLayoutWidth() != width || notes.simulatorLayoutHeight() != height)
+      fail("What's New pages were not rebuilt after rotation");
+    if (firstPage && notes.simulatorPage() != 0) fail("What's New landscape check did not start on page 1");
+    const bool touch = mappedInputManager.hasTouch();
+    const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !touch, false);
+    const Rect body = notes.simulatorBodyRect();
+    const Rect header = notes.simulatorHeaderRect();
+    for (const Rect& r : {body, header}) {
+      if (r.x < safe.x || r.x + r.width > safe.x + safe.width || r.y < safe.y || r.y + r.height > safe.y + safe.height)
+        fail("What's New content escaped the hint-safe area (%d,%d %dx%d vs %d,%d %dx%d)", r.x, r.y, r.width, r.height,
+             safe.x, safe.y, safe.width, safe.height);
+    }
+    // Touch devices and, since the Install Languages button, button devices both draw an on-screen action.
+    const Rect action = notes.simulatorActionRect(0);
+    if (action.width <= 0 || action.x < safe.x || action.x + action.width > safe.x + safe.width ||
+        action.y + action.height > safe.y + safe.height)
+      fail("What's New action button escaped the hint-safe area in landscape");
+    if (body.y + body.height > action.y) fail("What's New text overlaps the action button in landscape");
+
+    std::vector<uint8_t> strip;
+    {
+      RenderLock lock;
+      for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+          const bool inSafe = x >= safe.x && x < safe.x + safe.width && y >= safe.y && y < safe.y + safe.height;
+          if (!inSafe) strip.push_back(renderer.isPixelBlack(x, y) ? 1 : 0);
+        }
+      }
+    }
+    if (!touch && std::find(strip.begin(), strip.end(), 1) == strip.end())
+      fail("What's New landscape drew no button hints");
+    if (firstPage) {
+      releaseNotesHintStrip = std::move(strip);
+    } else if (strip != releaseNotesHintStrip) {
+      fail("What's New page %d drew under the side button hints", notes.simulatorPage() + 1);
+    }
+    LOG_INF("SMOKE", "What's New landscape %s page %d/%d (portrait had %d pages)", releaseNotesPass == 0 ? "cw" : "ccw",
+            notes.simulatorPage() + 1, notes.simulatorPageCount(), releaseNotesPortraitPages);
+  }
+
   void tickAbout() {
     if (scriptIndex < inputScript.size()) {
       runReaderInputScript();
@@ -4579,6 +4974,10 @@ class SimulatorSmokeTest {
     }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ABOUT")) {
       tickAbout();
+      return;
+    }
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_RELEASE_NOTES")) {
+      tickReleaseNotes();
       return;
     }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FILE_BROWSER_SYNC_RETURN")) {
@@ -7209,5 +7608,22 @@ SimulatorSmokeTest smokeTest;
 }  // namespace
 
 void runSimulatorSmokeTestTick() { smokeTest.tick(); }
+
+bool simulatorInterceptNetworkRestart(const uint32_t target, const uint32_t payload) {
+  if (!capturedNetworkRestart.armed) return false;
+  ++capturedNetworkRestart.count;
+  capturedNetworkRestart.target = target;
+  capturedNetworkRestart.payload = payload;
+  LOG_INF("SMOKE", "Captured network restart target=%u payload=%u", target, payload);
+  return true;
+}
+
+// Every scenario except the release notes one starts with What's New already dismissed so it cannot cover Home.
+void prepareSimulatorSmokeState() {
+  // Smoke tests and scripted-input harnesses (scripts/test_*.py) expect to drive Home directly.
+  const bool harness = std::getenv("CROSSINK_SIMULATOR_SMOKE_TEST") || std::getenv("CROSSPOINT_SIM_INPUT_SCRIPT");
+  if (harness && !std::getenv("CROSSINK_SIMULATOR_SMOKE_RELEASE_NOTES"))
+    APP_STATE.releaseNotesSeen = RELEASE_NOTES_REVISION;
+}
 
 #endif

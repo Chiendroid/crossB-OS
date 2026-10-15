@@ -39,6 +39,7 @@
 #include "OpdsServerListActivity.h"
 #include "QuickActions.h"
 #include "QuickActionsActivity.h"
+#include "ReleaseNotesActivity.h"
 #include "ScreenCalibrationActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
@@ -1021,6 +1022,14 @@ void SettingsActivity::onEnter() {
   app.on(ACTION_TAB, &SettingsActivity::onTabEvent, this);
   app.setScreen(&SettingsActivity::settingsScreen, this);
 
+  if (openLanguageDownloadsPending && !isFileBrowserView()) {
+    // Land on System > Device, then show the Download Languages popup from loop().
+    openLanguageDownloadsPending = false;
+    enterCategory(categoryCount - 1);
+    openSubmenu(SettingAction::SystemDevice);
+    pendingLanguageDownloads = true;
+  }
+
   // Trigger first update
   requestUpdate();
 }
@@ -1465,6 +1474,23 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::move(activity), [this](const ActivityResult&) {
           RenderLock lock(*this);
           app.setDevice(uiTarget.deviceContext());
+          requestUpdate();
+        });
+        break;
+      }
+      case SettingAction::ReleaseNotes: {
+        auto notes =
+            makeUniqueNoThrow<ReleaseNotesActivity>(renderer, mappedInput, ReleaseNotesActivity::Mode::FromSettings);
+        if (!notes) {
+          LOG_ERR("SET", "OOM: Release Notes activity");
+          return;
+        }
+        startActivityForResult(std::move(notes), [this](const ActivityResult& result) {
+          const auto* menu = std::get_if<MenuResult>(&result.data);
+          if (!result.isCancelled && menu && menu->action == ReleaseNotesActivity::RESULT_OPEN_LANGUAGE_DOWNLOADS) {
+            if (activeSubmenu == SettingAction::None) openSubmenu(SettingAction::SystemDevice);
+            pendingLanguageDownloads = true;  // Handled in loop(), once the Settings screen is current again.
+          }
           requestUpdate();
         });
         break;

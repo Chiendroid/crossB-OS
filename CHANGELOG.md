@@ -28,6 +28,7 @@
 - Render EPUB headings and CSS font sizes on X3/X4 using available bitmap sizes; optional SD sizes stay within a small memory budget and fall back safely when memory is tight.
 - Choose whether the built-in EPUB upload optimizer removes embedded fonts; removal is on by default and can be remembered in the browser.
 - Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
+- Show a one-time What's New screen after updating, with a one-click Update for an outdated language pack; reopen it anytime in Settings → System → Release Notes.
 
 ### Fixed
 

@@ -463,6 +463,9 @@ void silentRestartToReader(const bool cleanImageBaseOnEntry) { silentRestartToRe
 
 void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
   if (deepSleepInProgress) return;
+#ifdef SIMULATOR
+  if (simulatorInterceptNetworkRestart(static_cast<uint32_t>(target), payload)) return;
+#endif
   clearSilentRestartReaderPageBuild();
   silentRebootTarget = static_cast<uint32_t>(target);
   silentRebootPayload = payload;
@@ -1362,6 +1365,9 @@ void setup() {
   SETTINGS.loadFromFile();
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
   APP_STATE.loadFromFile();
+#ifdef SIMULATOR
+  prepareSimulatorSmokeState();
+#endif
   mirrorWakeShortPressToNvs();
   // Needs SETTINGS for the clock's UTC offset, so it cannot run any earlier.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Wake, BoardConfig::ACTIVE.name,

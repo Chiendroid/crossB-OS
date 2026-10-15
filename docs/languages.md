@@ -41,6 +41,11 @@ it with no further choices. Selecting an installed language offers **Activate**,
 reading position is kept, and you reopen the book normally. Cancelling the Wi-Fi
 screen returns Home and changes nothing.
 
+After a firmware update, the one-time **What's New** screen offers **Update** when
+the active language pack is older than the firmware, so a single press downloads
+the matching pack. The same screen is available under **Settings > System >
+Release Notes**.
+
 In Hyphenation Packs, packs that are not installed show **Install**. Selecting
 one installs it right away: a pack already on SD is activated directly, otherwise
 the reader restarts into the Wi-Fi screen, downloads the pack, and activates it

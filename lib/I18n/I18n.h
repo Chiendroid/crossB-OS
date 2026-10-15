@@ -18,6 +18,8 @@ class I18n {
 
   const char* get(StrId id) const;
   const char* operator[](StrId id) const { return get(id); }
+  // True when the active language has its own text for id (English always does).
+  bool hasTranslation(StrId id) const;
   // Called once before activities/rendering start. Mappings remain pinned until reboot.
   void begin(const char* preferredCode, uint64_t generation = 0);
   Language getLanguage() const { return languageFromCode(active_.keyboard); }

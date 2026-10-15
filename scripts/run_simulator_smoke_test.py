@@ -355,6 +355,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_SUPPORT_EXPORT"] = "1"
         if args.about:
             env["CROSSINK_SIMULATOR_SMOKE_ABOUT"] = "1"
+        if args.release_notes:
+            env["CROSSINK_SIMULATOR_SMOKE_RELEASE_NOTES"] = "1"
         if args.about_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.about_captures).resolve())
         if args.sync_server_captures:
@@ -395,6 +397,10 @@ def run_smoke(args: argparse.Namespace) -> int:
 
     if "Simulator smoke test passed" not in proc.stdout:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
+        return 2
+
+    if args.release_notes and "Simulator smoke test passed: release notes" not in proc.stdout:
+        print("Simulator did not complete the release notes checks", file=sys.stderr)
         return 2
 
     if args.clipping_selection and "Simulator smoke test passed: touch clipping actions" not in proc.stdout:
@@ -473,6 +479,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--opds-catalog", action="store_true", help="Check OPDS catalog release and download return flows")
     parser.add_argument("--support-export", action="store_true", help="Check support export privacy, scopes, cancellation and failure preservation")
     parser.add_argument("--about", action="store_true", help="Check About navigation, paging and read-only snapshots across scales/orientations")
+    parser.add_argument("--release-notes", action="store_true", help="Check the one-time What's New screen (Download, Update, touch Later vs swipe, landscape hints) and the Settings Release Notes entry; captures via --about-captures")
     parser.add_argument("--about-captures", help="Directory for About framebuffer captures (PGM)")
     parser.add_argument("--sync-server-captures", help="Directory for Sync Server settings captures (PGM)")
     parser.add_argument("--home-themes", action="store_true", help="Compare drawer theme changes with fresh Home renders (X4 Pro)")

@@ -40,6 +40,7 @@ enum class SettingAction {
   ControlsTapsGestures,
   ControlsTwoFingerSwipe,
   ControlsEdgeGestures,
+  ReleaseNotes,
   About,
   SystemDevice,
   SystemFilesCache,
@@ -291,6 +292,7 @@ class SettingsActivity final : public Activity {
   bool languageDownloadsOpen = false;
   bool languageRestartRequired = false;
   bool pendingLanguageDownloads = false;
+  bool openLanguageDownloadsPending = false;
   bool pendingLanguageDownloadConnect = false;
   bool pendingLanguageDownloadAction = false;
   uint8_t languageDownloadRow = 0;  // Index into LANGUAGE_CODES of the tapped download row.
@@ -359,6 +361,8 @@ class SettingsActivity final : public Activity {
                             bool returnToParentOnClose = false, View view = View::Root);
   bool allowGlobalHomeSwipeGesture() const override { return false; }
   bool handleHomeGesture() override;
+  // Opens System > Device with the Download Languages popup once the activity enters.
+  void openLanguageDownloadsOnEnter() { openLanguageDownloadsPending = true; }
 #ifdef SIMULATOR
   int simulatorCategoryIndex() const { return selectedCategoryIndex; }
   int simulatorSelectedIndex() const { return selectedSettingIndex; }
@@ -367,6 +371,8 @@ class SettingsActivity final : public Activity {
   bool simulatorOptionPopupActive() const { return optionPopup.isActive(); }
 #endif
   freeink::ui::Rect simulatorSafeRect() const { return app.device().safeRect(); }
+  SettingAction simulatorActiveSubmenu() const { return activeSubmenu; }
+  bool simulatorLanguageDownloadsOpen() const { return languageDownloadsOpen && optionPopup.isActive(); }
 #endif
   void onEnter() override;
   void onExit() override;

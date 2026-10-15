@@ -72,6 +72,13 @@ const char* I18n::get(StrId id) const {
   // Reserve one offset for English fallback; localized blobs may use the other 16 bits.
   return offset == I18N_ENGLISH_FALLBACK_OFFSET ? english(static_cast<uint16_t>(index)) : builtin_.data + offset;
 }
+bool I18n::hasTranslation(StrId id) const {
+  const size_t index = static_cast<size_t>(id);
+  if (index >= KEY_COUNT) return false;
+  if (std::strcmp(active_.code, "EN") == 0) return true;
+  if (activeData_) return offsets_[index] != MISSING;
+  return builtin_.offsets[index] != I18N_ENGLISH_FALLBACK_OFFSET;
+}
 void I18n::begin(const char* preferredCode, uint64_t generation) {
   if (begun_) return;
   begun_ = true;
