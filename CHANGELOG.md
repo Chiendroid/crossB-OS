@@ -82,6 +82,7 @@
 - Preserve publisher centering and alignment for image-only EPUB paragraphs when reader text alignment is overridden (#856).
 - Preserve the selected SD reader font when font details temporarily cannot load, and free Download Fonts catalog memory before restoring it (#855).
 - Preserve fine detail when fitting oversized high-color BMP sleep wallpapers and boot images by averaging pixels before dithering.
+- Use GitHub Releases for font downloads in builds without a configured custom font host.
 
 ### Changed
 

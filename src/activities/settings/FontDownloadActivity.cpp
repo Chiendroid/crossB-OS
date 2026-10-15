@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
@@ -304,6 +305,11 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   // retry delays do not swallow the press.
   HttpDownloader::DownloadOptions manifestOptions;
   manifestOptions.shouldCancel = [this]() { return pollCancelInput(false); };
+  // GitHub releases require HTTPS; use the existing streaming TLS transport
+  // rather than esp_http_client, which has stalled on C3 font downloads.
+  if (std::string_view(FONT_MANIFEST_URL).starts_with("https://")) {
+    manifestOptions.transport = HttpDownloader::Transport::WOLFSSL;
+  }
   // The font list is fetched again after individual updates. Release registry
   // memory on every manifest load, not only when entering Manage Fonts.
   sdFontSystem.releaseForNetwork(renderer);
@@ -413,7 +419,13 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     manifestStringArenaUsed_ = 1;
     manifestStringArenaCapacity_ = stringBytes;
 
+#ifdef FONT_DOWNLOAD_USE_GITHUB_RELEASES
+    // Published catalogs also serve S3 builds. A fallback build must keep the
+    // font payloads on GitHub even when that shared catalog advertises S3.
+    baseUrl_ = FONT_DOWNLOAD_CATALOG_BASE_URL;
+#else
     baseUrl_ = doc["baseUrl"] | "";
+#endif
     manifestFiles_ = makeUniqueNoThrow<ManifestFile[]>(retainedFileCount);
     if (retainedFileCount > 0 && !manifestFiles_) {
       LOG_ERR("FONT", "OOM: %zu-entry font manifest file table (free=%u maxAlloc=%u)", retainedFileCount,
@@ -865,6 +877,9 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.preservePartial = true;
     downloadOptions.resumePartial = true;
+    if (std::string_view(url).starts_with("https://")) {
+      downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
+    }
     // Poll Back and the touch Cancel controls from shouldCancel, which
     // HttpDownloader checks at the top of every read-loop iteration. The
     // progress callback is throttled to every 64KB / 250ms, so polling input
