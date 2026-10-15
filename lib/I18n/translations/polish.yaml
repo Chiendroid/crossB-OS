@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Dzielenie wyrazów, jeśli dostępne"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Jeśli język ma pakiet dzielenia wyrazów, instaluje się razem z nim. Dzielenie angielskie nadal jest wbudowane."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Książki dopasowują się same"
 STR_NOTES_1_6_2_BOOKS_BODY: "Książki w innych językach są składane ponownie po zainstalowaniu pakietu dzielenia wyrazów. Pozycja czytania zostaje zachowana."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Postęp rozdziału w %"

@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Ngắt từ, nếu có"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Nếu một ngôn ngữ có gói ngắt từ, gói đó được cài cùng ngôn ngữ. Ngắt từ tiếng Anh vẫn được tích hợp sẵn."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Sách tự dàn lại"
 STR_NOTES_1_6_2_BOOKS_BODY: "Sách ngôn ngữ khác được dàn trang lại khi gói ngắt từ được cài. Vị trí đọc của bạn được giữ nguyên."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Phần trăm tiến độ chương"

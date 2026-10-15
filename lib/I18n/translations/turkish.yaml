@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Heceleme, varsa"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Bir dilin heceleme paketi varsa dille birlikte kurulur. İngilizce heceleme yerleşik olarak kalır."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Kitaplar kendiliğinden yeniden dizilir"
 STR_NOTES_1_6_2_BOOKS_BODY: "Diğer dillerdeki kitaplar, heceleme paketi kurulunca yeniden dizilir. Okuma konumunuz korunur."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Bölüm İlerleme Yüzdesi"

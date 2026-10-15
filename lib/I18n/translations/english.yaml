@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Hyphenation, where available"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "If a language has a hyphenation pack, it installs with the language. English hyphenation is still built in."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Books reflow on their own"
 STR_NOTES_1_6_2_BOOKS_BODY: "Books in other languages are laid out again once their hyphenation pack is installed. Your reading position is kept."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Chapter Progress Percentage"

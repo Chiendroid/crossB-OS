@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Delenie slov, ak je k dispozícii"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Ak má jazyk balík delenia slov, nainštaluje sa spolu s ním. Anglické delenie slov zostáva zabudované."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Knihy sa prekreslia samy"
 STR_NOTES_1_6_2_BOOKS_BODY: "Knihy v iných jazykoch sa zalomia znova po inštalácii balíka delenia slov. Vaša pozícia čítania zostane zachovaná."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Percento prečítania kapitoly"

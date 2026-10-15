@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "מקף מילים, כשזמין"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "אם לשפה יש חבילת מקף מילים, היא מותקנת עם השפה. מקף מילים באנגלית עדיין מובנה."
 STR_NOTES_1_6_2_BOOKS_TITLE: "ספרים מסתדרים מחדש לבד"
 STR_NOTES_1_6_2_BOOKS_BODY: "ספרים בשפות אחרות מעוצבים מחדש לאחר התקנת חבילת מקף המילים. מיקום הקריאה נשמר."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "אחוז התקדמות בפרק"

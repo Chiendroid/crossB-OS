@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Woordafbreking, indien beschikbaar"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Heeft een taal een afbrekingspakket, dan wordt het met de taal geïnstalleerd. Engelse woordafbreking blijft ingebouwd."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Boeken passen zich zelf aan"
 STR_NOTES_1_6_2_BOOKS_BODY: "Boeken in andere talen worden opnieuw opgemaakt zodra hun afbrekingspakket is geïnstalleerd. Je leespositie blijft behouden."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentage voortgang hoofdstuk"

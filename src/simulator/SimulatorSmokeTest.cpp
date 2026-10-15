@@ -272,6 +272,81 @@ struct StatusBarFeatureSmokeTest {
     mappedInputManager.simulatorClearInputFrame();
     return !editor.optionPopup.isActive();
   }
+  static bool chapterPercentage(RenderLock& lock, const Capture& capture) {
+    const auto framebufferHash = [] {
+      uint64_t hash = 14695981039346656037ull;
+      const auto* pixels = renderer.getFrameBuffer();
+      for (size_t i = 0; i < renderer.getBufferSize(); ++i) hash = (hash ^ pixels[i]) * 1099511628211ull;
+      return hash;
+    };
+    const int chapterIndex = halClock.isAvailable() ? 8 : 6;
+    const int emptyIndex = chapterIndex + 3;
+    for (const auto position : {ReaderStatusBarPosition::Top, ReaderStatusBarPosition::Bottom}) {
+      auto config = ReaderStatusBarConfig{};
+      config.slots[0] = ReaderStatusBarItem::BookProgressPercentage;
+      SETTINGS.setReaderStatusBar(position, config);
+      StatusBarSettingsActivity editor(renderer, mappedInputManager, true);
+      editor.onEnter();
+      editor.selectedIndex = position == ReaderStatusBarPosition::Top ? 0 : 1;
+      editor.handleSelection();
+      editor.render(std::move(lock));
+      if (!open(editor)) return false;
+      editor.render(std::move(lock));
+      const auto stem =
+          position == ReaderStatusBarPosition::Top ? "chapter-percentage-top" : "chapter-percentage-bottom";
+      capture(std::string(stem) + "-picker");
+      if (std::strcmp(editor.optionPopup.simulatorOptionLabel(chapterIndex), tr(STR_CHAPTER_PROGRESS_PERCENTAGE)))
+        return false;
+      if (!choose(editor, mappedInputManager.hasTouchHardware() ? chapterIndex : 1, lock)) return false;
+      editor.render(std::move(lock));
+      editor.render(std::move(lock));
+      capture(stem);
+      if (SETTINGS.readerStatusBar(position).slots[0] != ReaderStatusBarItem::ChapterProgressPercentage) return false;
+      if (!open(editor) || !choose(editor, mappedInputManager.hasTouchHardware() ? emptyIndex : 3, lock)) return false;
+      if (SETTINGS.readerStatusBar(position).slots[0] != ReaderStatusBarItem::Empty) return false;
+      editor.render(std::move(lock));
+      editor.render(std::move(lock));
+      if (!open(editor) ||
+          !choose(editor, mappedInputManager.hasTouchHardware() ? chapterIndex : chapterIndex + 1, lock))
+        return false;
+      editor.onExit();
+      if (!SETTINGS.loadFromFile() ||
+          SETTINGS.readerStatusBar(position).slots[0] != ReaderStatusBarItem::ChapterProgressPercentage)
+        return false;
+      // Compare actual glyph pixels against the existing book-percentage formatter.
+      // Different book/chapter values catch accidentally rendering the book value.
+      config = SETTINGS.readerStatusBar(position);
+      ReaderStatusBarContent content;
+      content.bookProgress = 75.12f;
+      content.chapterProgress = 35.25f;
+      for (uint8_t format = 0; format < 3; ++format) {
+        config.percentageFormat = format;
+        SETTINGS.setReaderStatusBar(position, config);
+        renderer.clearScreen();
+        GUI.drawReaderStatusBar(renderer, position, content);
+        capture(std::string(stem) + "-format-" + std::to_string(format));
+        const auto chapterHash = framebufferHash();
+        auto reference = config;
+        reference.slots[0] = ReaderStatusBarItem::BookProgressPercentage;
+        content.bookProgress = content.chapterProgress;
+        renderer.clearScreen();
+        GUI.drawReaderStatusBar(renderer, position, content, &reference);
+        if (chapterHash != framebufferHash()) return false;
+        content.bookProgress = 75.12f;
+      }
+      content.chapterProgress = -1;
+      content.chapterPage = 1;
+      content.chapterPageCount = 4;
+      renderer.clearScreen();
+      GUI.drawReaderStatusBar(renderer, position, content);
+      const auto fallbackHash = framebufferHash();
+      content.chapterProgress = 25;
+      renderer.clearScreen();
+      GUI.drawReaderStatusBar(renderer, position, content);
+      if (fallbackHash != framebufferHash()) return false;
+    }
+    return true;
+  }
   static bool settings(RenderLock& lock, const Capture& capture) {
     SETTINGS.legacyXtcTopUsesBottom = 1;
     const auto top = SETTINGS.topReaderStatusBar.slots;
@@ -5335,6 +5410,13 @@ class SimulatorSmokeTest {
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY")) verifyDictionaryElisions();
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CHAPTER_PERCENTAGE")) {
+          RenderLock lock;
+          const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
+          if (!StatusBarFeatureSmokeTest::chapterPercentage(lock, capture)) fail("Chapter percentage controls failed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: chapter percentage");
+          std::_Exit(0);
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE")) {
           verifyStatusBarFeature();
           LOG_INF("SMOKE", "Simulator smoke test passed: status bar feature");

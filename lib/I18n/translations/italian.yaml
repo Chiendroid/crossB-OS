@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Sillabazione, se disponibile"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Se una lingua ha un pacchetto di sillabazione, si installa con la lingua. La sillabazione inglese resta inclusa."
 STR_NOTES_1_6_2_BOOKS_TITLE: "I libri si adattano da soli"
 STR_NOTES_1_6_2_BOOKS_BODY: "I libri in altre lingue vengono impaginati di nuovo quando il loro pacchetto di sillabazione è installato. La posizione di lettura viene mantenuta."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentuale avanzamento capitolo"

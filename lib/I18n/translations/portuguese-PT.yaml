@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Hifenização, quando disponível"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Se um idioma tiver pacote de hifenização, é instalado com o idioma. A hifenização em inglês continua incluída."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Os livros ajustam-se sozinhos"
 STR_NOTES_1_6_2_BOOKS_BODY: "Os livros noutros idiomas são paginados de novo quando o pacote de hifenização é instalado. A sua posição de leitura é mantida."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentagem de progresso do capítulo"

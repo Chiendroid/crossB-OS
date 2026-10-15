@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Avstavning, där det finns"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Har ett språk ett avstavningspaket installeras det med språket. Engelsk avstavning är fortfarande inbyggd."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Böcker flödar om av sig själva"
 STR_NOTES_1_6_2_BOOKS_BODY: "Böcker på andra språk läggs om när deras avstavningspaket har installerats. Din läsposition behålls."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Kapitelframsteg i procent"

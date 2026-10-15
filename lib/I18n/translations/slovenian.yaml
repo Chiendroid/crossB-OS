@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Deljenje besed, kjer je na voljo"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Če ima jezik paket za deljenje besed, se namesti skupaj z jezikom. Angleško deljenje besed je še vedno vgrajeno."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Knjige se preoblikujejo same"
 STR_NOTES_1_6_2_BOOKS_BODY: "Knjige v drugih jezikih se znova oblikujejo, ko je nameščen paket za deljenje besed. Vaš položaj branja se ohrani."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Odstotek napredka v poglavju"

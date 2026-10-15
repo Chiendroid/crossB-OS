@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Silbentrennung, wo verfügbar"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Hat eine Sprache ein Silbentrennungspaket, wird es mit der Sprache installiert. Die englische Silbentrennung bleibt eingebaut."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Bücher passen sich selbst an"
 STR_NOTES_1_6_2_BOOKS_BODY: "Bücher in anderen Sprachen werden neu umbrochen, sobald ihr Silbentrennungspaket installiert ist. Ihre Leseposition bleibt erhalten."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Kapitelfortschritt in %"

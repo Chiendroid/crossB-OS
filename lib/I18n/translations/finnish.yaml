@@ -982,3 +982,5 @@ STR_NOTES_1_6_2_HYPHENATION_TITLE: "Tavutus, jos saatavilla"
 STR_NOTES_1_6_2_HYPHENATION_BODY: "Jos kielellä on tavutuspaketti, se asennetaan kielen mukana. Englannin tavutus on edelleen sisäänrakennettu."
 STR_NOTES_1_6_2_BOOKS_TITLE: "Kirjat asettuvat itse"
 STR_NOTES_1_6_2_BOOKS_BODY: "Muunkieliset kirjat taitetaan uudelleen, kun niiden tavutuspaketti on asennettu. Lukukohtasi säilyy."
+
+STR_CHAPTER_PROGRESS_PERCENTAGE: "Luvun edistymisprosentti"
