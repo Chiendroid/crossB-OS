@@ -829,6 +829,15 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
+  // Outside the open book, the bottom edge remains a Home shortcut even on
+  // boards with a Home key. Keep swipe intent separate from the key's Back
+  // behavior, and let drawers/dialogs retain their own dismissal handling.
+  if (!currentActivity->isBookReaderActivity() && currentActivity->allowGlobalHomeSwipeGesture() &&
+      mappedInput.wasBottomEdgeUpSwipe()) {
+    if (!currentActivity->handleHomeGesture()) goHome();
+    return true;
+  }
+
   const bool homeGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
                                ? mappedInput.wasReaderHomeGesture()
                                : (currentActivity->allowGlobalHomeSwipeGesture() || mappedInput.hasHomeKey()) &&

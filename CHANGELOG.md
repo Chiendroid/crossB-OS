@@ -84,6 +84,7 @@
 - Preserve fine detail when fitting oversized high-color BMP sleep wallpapers and boot images by averaging pixels before dithering.
 - Use GitHub Releases for font downloads in builds without a configured custom font host.
 - Make Chapter Progress Percentage available in both reader status-bar slot pickers and web settings (#859).
+- Restore bottom-edge swipe up to Home outside books on touch devices, including X4 Pro; ordinary list swipes still scroll and reader gestures stay unchanged.
 
 ### Changed
 
