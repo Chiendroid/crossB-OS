@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
@@ -276,8 +277,10 @@ void ScreenCalibrationActivity::calibrationScreen(UiApp::ScreenType& screen, voi
   }
 
   const int noteY = buttonRowY + BUTTON_HEIGHT + SECTION_GAP;
+  const int noteBottom =
+      std::min<int>(safe.bottom(), renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer));
   const auto noteRect =
-      fui::Rect{safe.x, static_cast<int16_t>(noteY), safe.width, static_cast<int16_t>(safe.bottom() - noteY)};
+      fui::Rect{safe.x, static_cast<int16_t>(noteY), safe.width, static_cast<int16_t>(std::max(0, noteBottom - noteY))};
   if (self.saveFailed) {
     // Pin the error under the buttons instead of centering it in the free space.
     const auto errorRect = fui::Rect{noteRect.x, noteRect.y, noteRect.width,
@@ -321,5 +324,10 @@ void ScreenCalibrationActivity::render(RenderLock&&) {
   uiReady = false;
   app.render();
   uiReady = true;
+  const auto labels =
+      mappedInput.mapLabels(mappedInput.withBackArrow(editing ? tr(STR_BACK) : tr(STR_CANCEL)),
+                            editing ? tr(STR_CONFIRM) : (selected < EDGE_COUNT ? tr(STR_EDIT) : tr(STR_SELECT)),
+                            editing ? "-" : tr(STR_DIR_UP), editing ? "+" : tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
