@@ -20,15 +20,16 @@
 #include <GfxRenderer.h>
 
 extern uint32_t testHyphenationIdentity;
+extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 95;
+constexpr uint8_t kFullVersion = 96;
 constexpr uint8_t kPreImageAlignmentFullVersion = 94;
 constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xD0;
+constexpr uint8_t kPartialVersion = 0xD1;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -106,6 +107,7 @@ class SectionPersistenceTest : public testing::Test {
  protected:
   void SetUp() override {
     Storage.reset();
+    testTocEntries.clear();
     testHyphenationIdentity = 1;
   }
 };
@@ -182,7 +184,9 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {kPreImageAlignmentFullVersion,
+  for (const uint8_t staleVersion : {uint8_t{95},
+                                     uint8_t{0xD0},
+                                     kPreImageAlignmentFullVersion,
                                      kPreImageAlignmentPartialVersion,
                                      kPreFieldsetFullVersion,
                                      kPreFieldsetPartialVersion,
@@ -288,6 +292,7 @@ TEST_F(SectionPersistenceTest, SyncLookupsUseTheSelectedRenderModesCache) {
 TEST_F(SectionPersistenceTest, ChangedPatternsInvalidateCompleteAndPartialSections) {
   for (const auto version : {kFullVersion, kPartialVersion}) {
     Storage.reset();
+    testTocEntries.clear();
     testHyphenationIdentity = 41;
     SectionHarness harness;
     harness.begin();
@@ -315,6 +320,7 @@ TEST_F(SectionPersistenceTest, PatternChangesDoNotInvalidateDisabledHyphenation)
 TEST_F(SectionPersistenceTest, CharacterSpacingInvalidatesCompleteAndPartialSections) {
   for (const auto version : {kFullVersion, kPartialVersion}) {
     Storage.reset();
+    testTocEntries.clear();
     SectionHarness harness;
     harness.spec.characterSpacing = -5;
     harness.begin();
@@ -403,6 +409,7 @@ TEST_F(SectionPersistenceTest, ParagraphPositionUsesLivePrefixAndRejectsInvalidD
 TEST_F(SectionPersistenceTest, PublisherFaceStateSurvivesCompleteAndPartialCommits) {
   for (const uint8_t version : {kFullVersion, kPartialVersion}) {
     Storage.reset();
+    testTocEntries.clear();
     SectionHarness harness;
     harness.spec.publisherFonts = PublisherFonts::Accents;
     harness.begin();
@@ -429,4 +436,24 @@ TEST_F(SectionPersistenceTest, PublisherFaceStateSurvivesCompleteAndPartialCommi
     harness.renderer.publisherSignature = 5678;
     EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
   }
+}
+
+TEST_F(SectionPersistenceTest, ContentsSelectsLatestSubchapterAcrossAnchorBatches) {
+  SectionHarness h;
+  std::vector<std::pair<std::string, uint16_t>> anchors;
+  for (int i = 0; i < 70; ++i) {
+    BookMetadataCache::TocEntry entry{};
+    entry.spineIndex = 0;
+    entry.anchor = "chapter" + std::to_string(i);
+    anchors.emplace_back(entry.anchor, i);
+    testTocEntries.push_back(entry);
+  }
+  h.begin(anchors);
+  EXPECT_EQ(h.section.getTocIndexForPage(65), 65);
+  h.appendPages(70);
+  ASSERT_TRUE(h.commit(kFullVersion));
+  h.finishSuccessfulCommit();
+  EXPECT_EQ(h.section.getTocIndexForPage(65), 65);
+  EXPECT_EQ(h.section.getTocIndexForPage(0), 0);
+  EXPECT_EQ(h.section.getTocIndexForPage(100), 69);
 }

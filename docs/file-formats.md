@@ -1609,3 +1609,7 @@ a restart before another operation or activation of its new mapping.
 ### KOReader server configuration v3
 
 `/.crosspoint/koreader.json` adds `serverType` (0: CrossPoint, 1: KOSync, 2: Other) and up to two `headers` entries with `name` and device-obfuscated `value_obf`. Version 2 configurations retain their URL and opt-ins; the hosted default maps to CrossPoint and custom URLs to KOSync. The pre-v2 legacy-server migration remains separate. No EPUB cache layout changes.
+
+### EPUB explicit-dash wrapping
+
+Section cache version 96 (partial version `0xD1`) adds breakable, space-free token boundaries after visible hyphens and dashes. Both complete and suspended caches from earlier versions rebuild automatically.

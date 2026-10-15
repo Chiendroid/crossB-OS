@@ -32,6 +32,8 @@
 - Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
 - Choose a sync server type and custom authentication headers; compatible servers can receive ISBN, ASIN, and series metadata when sharing metadata is enabled.
 
+- Swipe left on File Browser, Library list, and bookmark rows to reveal a delete button, with confirmation before removal (adapted from Uri Tauber, CrossPoint #3712).
+
 ### Fixed
 
 - Keep web dialogs open when a text-selection drag ends outside the dialog, while preserving backdrop clicks and upload-in-progress protection (adapted from Crestwave, CrossPoint #3931).
@@ -87,6 +89,12 @@
 - Make Chapter Progress Percentage available in both reader status-bar slot pickers and web settings (#859).
 - Restore bottom-edge swipe up to Home outside books on touch devices, including X4 Pro; ordinary list swipes still scroll and reader gestures stay unchanged.
 - Accept percentage-only sync positions from compatible servers, including for optimized EPUBs.
+- Keep serial logs flowing after low-power USB interruptions (Sung-jin Brian Hong, CrossPoint #3737), disable tilt page turning for accelerometer-only sensors (Justin Mitchell, CrossPoint `8fc2b66`), and discard image caches when their final write fails (Uri Tauber, CrossPoint #3918).
+- Include currency and letterlike symbols and the minus sign in newly converted latin-ext SD fonts (Stefan VanBuren, CrossPoint #3801).
+- Select the current subchapter when opening EPUB Contents, including chapters with many headings (adapted from Uri Tauber, CrossPoint #3946).
+- Allow EPUB lines to wrap after dashes without adding spaces or splitting dash runs (adapted from Phạm Bình An, CrossPoint #3883).
+- Center footer button hints using their actual font height (Uri Tauber, CrossPoint #3865).
+- Avoid extra temporary allocations when navigating Home’s cover grid (adapted from Sung-jin Brian Hong, CrossPoint #3848).
 
 ### Changed
 
@@ -112,6 +120,8 @@
 - Sync Books and Sync Folder stay on one screen with the current book, a progress bar, and the running counts, instead of flashing a screen for every book. Failed books no longer stop the sync: the final screen lists each one with what failed ("Progress sync failed", "Stats sync failed", or "Clippings sync failed") and why. Use Up and Down to scroll a long list. In Ask on conflicts, choices wait until every book is done and are then shown one after another.
 - Sync Book on a single book shows which part failed with the book's title underneath and a result line for its progress, reading stats, and clippings.
 - Reduce repeated SD reads when opening EPUBs, browsing Library rows, and preserving reading position through layout changes; reuse temporary TXT indexing scratch without retaining it while reading.
+- Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
+
 
 ## [v1.6.1] - 2026-10-03
 
