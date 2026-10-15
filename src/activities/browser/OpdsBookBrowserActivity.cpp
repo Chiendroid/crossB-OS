@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <FreeInkUIIcon.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -33,6 +34,7 @@
 #include "network/DownloadFileSwap.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
+#include "util/OpdsDownloadFolder.h"
 #include "util/OpdsFeedError.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
@@ -786,8 +788,17 @@ void OpdsBookBrowserActivity::navigateBack() {
 }
 
 void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
-  std::string path = SETTINGS.opdsDownloadFolder;
-  path += '/';
+  std::string path;
+  if (!OpdsDownloadFolder::normalize(OpdsDownloadFolder::effective(server.downloadFolder, SETTINGS.opdsDownloadFolder),
+                                     path)) {
+    LOG_ERR("OPDS", "Invalid download folder");
+    RenderLock lock;
+    state = BrowserState::ERROR;
+    errorMessage = tr(STR_OPDS_INVALID_FOLDER);
+    requestUpdate();
+    return;
+  }
+  if (path != "/") path += '/';
   path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, server.filenameFormat));
   path += ".epub";
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
@@ -865,10 +876,11 @@ void OpdsBookBrowserActivity::downloadBook(DownloadRequest request, const std::s
   // This temporary is intentionally retained until downloadToFile returns;
   // DownloadOptions borrows it to avoid copying the server URL per transfer.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
-  const char* downloadFolder = SETTINGS.opdsDownloadFolder;
-  bool useDownloadFolder = downloadFolder[0] != '\0';
-  if (useDownloadFolder && !Storage.exists(downloadFolder) && !Storage.mkdir(downloadFolder)) {
-    LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder);
+  // The request path was resolved before any overwrite prompt. Never re-read
+  // the global setting here or a retry could create a different directory.
+  const std::string downloadFolder = FsHelpers::extractFolderPath(request.filename);
+  if (downloadFolder != "/" && !Storage.mkdir(downloadFolder.c_str()) && !Storage.exists(downloadFolder.c_str())) {
+    LOG_ERR("OPDS", "Could not create download folder %s", downloadFolder.c_str());
     RenderLock lock;
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);

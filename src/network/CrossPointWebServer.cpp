@@ -44,6 +44,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/BookMoveUtils.h"
 #include "util/FontFamilyLabel.h"
+#include "util/OpdsDownloadFolder.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
 
@@ -185,12 +186,12 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
   return true;
 }
 
-// Streams a font-catalog JSON response in bounded pieces. This avoids holding
+// Streams catalog JSON responses in bounded pieces. This avoids holding
 // both an ArduinoJson document and its serialized String in the fragmented
 // network heap, and gives WiFi a chance to drain each piece before the next.
-class FontListJsonWriter {
+class WebJsonWriter {
  public:
-  explicit FontListJsonWriter(WebServer& server) : server_(server) {}
+  explicit WebJsonWriter(WebServer& server) : server_(server) {}
 
   void append(const char* text) { append(text, strlen(text)); }
 
@@ -1783,6 +1784,19 @@ void CrossPointWebServer::handlePostSettings() {
     return;
   }
 
+  const JsonVariantConst folderValue = doc["opdsDownloadFolder"];
+  if (!folderValue.isUnbound()) {
+    std::string folder;
+    const auto input = folderValue.as<JsonString>();
+    if (!folderValue.is<const char*>() ||
+        !OpdsDownloadFolder::normalize(std::string_view(input.c_str(), input.size()), folder)) {
+      server->send(400, "text/plain", "Invalid download folder (maximum 63 bytes)");
+      return;
+    }
+    doc["opdsDownloadFolder"] = folder == "/" ? "" : folder;
+  }
+  const std::string previousFolder = SETTINGS.opdsDownloadFolder;
+
   sdFontSystem.refreshIfDirty();
   const auto& settings = getSettingsList(&sdFontSystem.registry());
   int applied = 0;
@@ -1861,6 +1875,7 @@ void CrossPointWebServer::handlePostSettings() {
   }
   settingsLock.unlock();  // saveToFile acquires the settings mutex itself.
   if (!SETTINGS.saveToFile()) {
+    if (!folderValue.isUnbound()) strcpy(SETTINGS.opdsDownloadFolder, previousFolder.c_str());
     LOG_ERR("WEB", "Failed to save settings");
     server->send(500, "text/plain", "Failed to save settings");
     sdFontSystem.releaseRegistry();
@@ -1882,29 +1897,30 @@ void CrossPointWebServer::handleGetOpdsServers() const {
   server->send(200, "application/json", "");
   server->sendContent("[");
 
-  char output[512];
-  constexpr size_t outputSize = sizeof(output);
-  JsonDocument doc;
-
+  // Reuse the bounded writer: longer folder paths and escaped URLs must not
+  // truncate an object or produce a leading comma after a skipped server.
+  WebJsonWriter json(*server);
   for (size_t i = 0; i < servers.size(); i++) {
-    doc.clear();
-    doc["index"] = i;
-    doc["name"] = servers[i].name;
-    doc["url"] = servers[i].url;
-    doc["username"] = servers[i].username;
-    doc["filenameFormat"] = opdsFilenameFormatToJson(servers[i].filenameFormat);
-    // Never expose passwords over the API — only indicate whether one is set
-    doc["hasPassword"] = !servers[i].password.empty();
-
-    const size_t written = serializeJson(doc, output, outputSize);
-    if (written >= outputSize) continue;
-
-    if (i > 0) server->sendContent(",");
-    server->sendContent(output);
-    yield();  // Allow WiFi and other tasks to run during a slow send.
+    const auto& entry = servers[i];
+    if (i > 0) json.append(",");
+    json.append("{\"index\":");
+    json.appendUnsigned(i);
+    json.append(",\"name\":");
+    json.appendJsonString(entry.name.c_str());
+    json.append(",\"url\":");
+    json.appendJsonString(entry.url.c_str());
+    json.append(",\"username\":");
+    json.appendJsonString(entry.username.c_str());
+    json.append(",\"filenameFormat\":");
+    json.appendJsonString(opdsFilenameFormatToJson(entry.filenameFormat));
+    json.append(",\"downloadFolder\":");
+    json.appendJsonString(entry.downloadFolder.c_str());
+    json.append(entry.password.empty() ? ",\"hasPassword\":false}" : ",\"hasPassword\":true}");
+    json.flush();
+    yield();
   }
-
-  server->sendContent("]");
+  json.append("]");
+  json.flush();
   server->sendContent("");
 }
 
@@ -1928,6 +1944,12 @@ void CrossPointWebServer::handlePostOpdsServer() {
   opdsServer.username = doc["username"] | std::string("");
   opdsServer.filenameFormat = opdsFilenameFormatFromJson(doc["filenameFormat"] | "");
 
+  if (!applyOpdsDownloadFolder(doc.as<JsonVariantConst>(), opdsServer.downloadFolder)) {
+    server->send(400, "text/plain", "Invalid download folder (maximum 63 bytes)");
+    return;
+  }
+  const bool hasDownloadFolder = !doc.as<JsonVariantConst>()["downloadFolder"].isUnbound();
+
   // The password field is optional in the JSON payload. When absent (vs. present but empty),
   // we preserve the existing password — the web UI omits it when the user hasn't changed it.
   bool hasPasswordField = doc["password"].is<const char*>() || doc["password"].is<std::string>();
@@ -1949,8 +1971,12 @@ void CrossPointWebServer::handlePostOpdsServer() {
     if (existing && !hasFilenameFormatField) {
       opdsServer.filenameFormat = existing->filenameFormat;
     }
+    if (existing && !hasDownloadFolder) opdsServer.downloadFolder = existing->downloadFolder;
     opdsServer.password = password;
-    OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer);
+    if (!OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer)) {
+      server->send(500, "text/plain", "Could not save OPDS server");
+      return;
+    }
     LOG_DBG("WEB", "Updated OPDS server at index %d", idx);
   } else {
     opdsServer.password = password;
@@ -2348,7 +2374,7 @@ void CrossPointWebServer::handleFontList() const {
   // can exhaust the fragmented network heap with larger font collections.
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
-  FontListJsonWriter json(*server);
+  WebJsonWriter json(*server);
   json.append("{\"families\":[");
 
   bool firstFamily = true;

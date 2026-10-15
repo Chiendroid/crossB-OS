@@ -29,6 +29,7 @@
 - Choose whether the built-in EPUB upload optimizer removes embedded fonts; removal is on by default and can be remembered in the browser.
 - Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
 - Show a one-time What's New screen after updating, with a one-click Update for an outdated language pack; reopen it anytime in Settings → System → Release Notes.
+- Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
 
 ### Fixed
 

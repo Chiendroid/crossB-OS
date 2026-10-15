@@ -418,6 +418,16 @@ You can also manage OPDS servers from the web interface while in File Transfer m
 
 For web-based Wi-Fi network management, see [File Transfer](./webserver.md).
 
+Each server also has a **Download Folder** setting:
+
+- **Use default** follows **Default Folder** on the OPDS Servers screen. Existing servers use this automatically.
+- **SD Root** downloads directly to the SD card root, even when the default points elsewhere.
+- **Custom folder** opens the keyboard for a folder such as `/Books/Calibre`.
+
+The web portal offers the same choices and previews the destination. Save the shared default with **Save default**, and each server with its **Save** button. Folder changes affect future downloads; existing books are not moved. Missing folders, including nested folders, are created when downloading. If the destination cannot be used, the download reports an error rather than saving elsewhere.
+
+Folder paths may contain up to 63 UTF-8 bytes, including the leading slash. Relative input gains a leading slash; repeated/trailing slashes are removed. Parent-directory components (`..`), control characters, FAT-reserved characters and components ending in a dot or space are rejected.
+
 #### 3.6.6 Web Settings (Wi-Fi + OPDS)
 
 While in **File Transfer** mode, the web settings page includes management cards for both **Wi-Fi Networks** and **OPDS Servers**.

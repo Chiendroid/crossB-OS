@@ -1601,3 +1601,7 @@ languages, invalid bounds, uncommitted banks and bad header/payload checksums
 are rejected. Boot selects the highest fully valid generation. Generations do
 not wrap; exhausting u32 rejects a further update. A successful update requires
 a restart before another operation or activation of its new mapping.
+
+## OPDS server download folders
+
+`/.crosspoint/opds.json` stores an optional `downloadFolder` string on each entry in `servers`. Missing or empty means inherit the global `opdsDownloadFolder` setting; `/` explicitly selects SD root. Other values are normalized absolute SD folder paths (at most 63 UTF-8 bytes). Existing files need no migration. No EPUB cache or settings binary format change is required.
