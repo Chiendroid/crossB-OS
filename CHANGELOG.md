@@ -78,6 +78,7 @@
 - Use fonts embedded in EPUBs on ESP32-S3 readers, with Off, Ignore Body Font, and All Text modes in global Reader → Font Options below TTF Rendering (when available) and each book’s Font menu below Reader Font.
 - Preserve publisher centering and alignment for image-only EPUB paragraphs when reader text alignment is overridden (#856).
 - Preserve the selected SD reader font when font details temporarily cannot load, and free Download Fonts catalog memory before restoring it (#855).
+- Preserve fine detail when fitting oversized high-color BMP sleep wallpapers and boot images by averaging pixels before dithering.
 
 ### Changed
 
