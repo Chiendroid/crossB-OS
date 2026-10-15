@@ -2386,7 +2386,6 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
-  showOpeningFeedback();
   pageLoadRetryCount = 0;
   touchReaderDrawerState = initialReaderDrawerState(mappedInput.hasTouchHardware());
 
@@ -2396,13 +2395,15 @@ void EpubReaderActivity::onEnter() {
   // over, and onExit() unconditionally tears down the setup below. Returning early here
   // instead would leave reader mode and the bookmark/clipping stores unbalanced.
   captureGlobalReaderSettings();
+  loadBookReaderSettings();
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  showOpeningFeedback();
   epub->setupCacheDir();
   {
     GfxRenderer::FrameBufferLoan loan(renderer);
     epub->ensureOptimizerImageIndex();
   }
   showOpeningFeedback();
-  loadBookReaderSettings();
   sdFontSystem.setSettingsPersistenceCallback(persistReaderSdFontSettingsForBook, this);
   ensureReaderSdFontLoaded(renderer);
   showOpeningFeedback();
@@ -2415,10 +2416,6 @@ void EpubReaderActivity::onEnter() {
       [](void* context, const char* source, const int width, const int height, const char* destination) {
         return static_cast<Epub*>(context)->seedOptimizerImageCache(source, width, height, destination);
       });
-
-  // Configure screen orientation based on settings
-  // NOTE: This affects layout math and must be applied before any render calls.
-  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
@@ -2803,7 +2800,7 @@ void EpubReaderActivity::openReaderMenu() {
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
   // drawPopup() already refreshes the panel with a FAST waveform.
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  openingFeedback.showIndexing(renderer);
   pagesUntilFullRefresh = 1;
   buildPopupPending = false;
 }
@@ -4881,7 +4878,7 @@ void EpubReaderActivity::reindexCurrentSection() {
     saveCurrentBookReaderSettings();
     ensureReaderSdFontLoaded(renderer);
     if (!restorePreviewPosition) {
-      GUI.drawPopup(renderer, tr(STR_INDEXING));
+      openingFeedback.showIndexing(renderer);
       prepareCurrentSectionForRelayout();
       section.reset();
       // The newly selected SD font can still hold glyph and advance-table caches from
@@ -6395,10 +6392,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   };
 
   const auto showIndexingPopup = [this]() {
-    openingFeedback.finish();
     // drawPopup() already refreshes the panel with a FAST waveform. A second
     // refresh of the identical frame cost ~0.55-0.7 s before every index build.
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    openingFeedback.showIndexing(renderer);
     pagesUntilFullRefresh = 1;
   };
 
@@ -6544,8 +6540,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
       const auto popupFn = [this]() {
         if (renderer.hasFrameBuffer()) {
-          openingFeedback.finish();
-          GUI.drawPopup(renderer, tr(STR_INDEXING));
+          openingFeedback.showIndexing(renderer);
         }
       };
 

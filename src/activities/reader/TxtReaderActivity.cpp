@@ -121,6 +121,7 @@ void drawToast(const GfxRenderer& renderer, const char* msg) {
 
 void TxtReaderActivity::onEnter() {
   Activity::onEnter();
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   showOpeningFeedback();
 
   if (!txt) {
@@ -129,7 +130,6 @@ void TxtReaderActivity::onEnter() {
 
   sdFontSystem.ensureLoaded(renderer);
   showOpeningFeedback();
-  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
@@ -719,8 +719,7 @@ void TxtReaderActivity::buildPageIndex() {
   size_t offset = 0;
   const size_t fileSize = txt->getFileSize();
 
-  openingFeedback.finish();
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  openingFeedback.showIndexing(renderer);
 
   // At most 8193 bytes, owned only by this indexing call: too large for the
   // task stack, and no permanent C3 RAM cost after indexing finishes.

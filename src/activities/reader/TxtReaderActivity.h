@@ -97,7 +97,7 @@ class TxtReaderActivity final : public Activity {
 
   BookLoadingFeedback openingFeedback;
   bool showOpeningFeedback() {
-    if (!openingFeedback.showIfDue(renderer)) return false;
+    if (!openingFeedback.showIfPending(renderer)) return false;
     pagesUntilFullRefresh = 0;
     return true;
   }

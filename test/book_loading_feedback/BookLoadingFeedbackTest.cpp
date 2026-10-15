@@ -1,42 +1,50 @@
 #include <cassert>
-#include <cstdint>
 
 #include "BookLoadingFeedback.h"
 #include "components/UITheme.h"
 
-uint32_t testNow = 0;
 TestTheme GUI;
 
 int main() {
   GfxRenderer renderer;
   BookLoadingFeedback feedback;
-  testNow = 10000;
-  assert(!feedback.showIfDue(renderer));  // Direct reader construction is quiet.
+  assert(!feedback.showIfPending(renderer));  // Direct reader construction is quiet.
 
-  feedback.start(10000);
-  testNow = 10299;
-  assert(!feedback.showIfDue(renderer));
-  testNow = 10300;
+  feedback.start();
   renderer.available = false;
-  assert(!feedback.showIfDue(renderer));  // Never touch lent build scratch.
+  assert(!feedback.showIfPending(renderer));  // Never touch lent build scratch.
   renderer.available = true;
-  assert(feedback.showIfDue(renderer));
+  assert(feedback.showIfPending(renderer));
   assert(GUI.draws == 1);
-  testNow = 20000;
-  assert(!feedback.showIfDue(renderer));  // One refresh per open.
+  assert(renderer.clears == 1);
+  assert(!feedback.showIfPending(renderer));  // One refresh per open.
 
-  feedback.start(testNow);
-  feedback.finish();  // Fast first page, failure, or an existing Indexing popup.
-  testNow += 1000;
-  assert(!feedback.showIfDue(renderer));
+  feedback.start();
+  feedback.finish();  // Failure or an existing Indexing popup.
+  assert(!feedback.showIfPending(renderer));
 
-  feedback.start(UINT32_MAX - 100);
+  feedback.start();
   BookLoadingFeedback handedOff = feedback;
-  testNow = 198;
-  assert(!handedOff.showIfDue(renderer));
-  testNow = 199;
-  assert(handedOff.showIfDue(renderer));  // Timer survives handoff and clock wrap.
+  assert(handedOff.showIfPending(renderer));  // Pending feedback survives the reader handoff.
   assert(GUI.draws == 2);
   BookLoadingFeedback afterPopup = handedOff;
-  assert(!afterPopup.showIfDue(renderer));
+  assert(!afterPopup.showIfPending(renderer));
+
+  // Indexing replaces an already visible Loading notice and cancels future Loading.
+  feedback.start();
+  feedback.showIndexing(renderer);
+  assert(GUI.draws == 3);
+  assert(renderer.clears == 3);
+  assert(!feedback.showIfPending(renderer));
+  feedback.showIndexing(renderer);
+  assert(GUI.draws == 4);
+  assert(renderer.clears == 4);
+
+  // Never clear a framebuffer lent to EPUB parsing, even when indexing starts.
+  feedback.start();
+  renderer.available = false;
+  feedback.showIndexing(renderer);
+  assert(renderer.clears == 4);
+  renderer.available = true;
+  assert(!feedback.showIfPending(renderer));
 }

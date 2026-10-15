@@ -5796,15 +5796,39 @@ class SimulatorSmokeTest {
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK_LOADING")) {
           RenderLock lock;
           BookLoadingFeedback feedback;
-          feedback.start(millis());
-          if (feedback.showIfDue(renderer)) fail("Fast book open showed loading feedback");
-          captureStatusBarScreen("book-loading-fast");
-          // Simulate elapsed loading time without slowing normal smoke runs.
-          feedback.start(millis() - BookLoadingFeedback::DELAY_MS);
-          if (!feedback.showIfDue(renderer)) fail("Slow book open omitted loading feedback");
-          captureStatusBarScreen("book-loading-slow");
-          if (feedback.showIfDue(renderer)) fail("Book loading feedback refreshed twice");
-          LOG_INF("SMOKE", "Delayed book loading feedback passed");
+          feedback.start();
+          if (!feedback.showIfPending(renderer)) fail("Book open omitted immediate loading feedback");
+          captureStatusBarScreen("book-loading-immediate");
+          if (feedback.showIfPending(renderer)) fail("Book loading feedback refreshed twice");
+          const auto frameHash = []() {
+            uint32_t hash = 2166136261U;
+            for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+              for (int x = 0; x < renderer.getScreenWidth(); ++x) {
+                hash = (hash ^ static_cast<uint32_t>(renderer.isPixelBlack(x, y))) * 16777619U;
+              }
+            }
+            return hash;
+          };
+          const auto originalOrientation = renderer.getOrientation();
+          for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                         GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+            // Reproduce the old handoff: portrait Loading followed by rotated Indexing.
+            renderer.setOrientation(GfxRenderer::Portrait);
+            feedback.start();
+            feedback.showIfPending(renderer);
+            renderer.setOrientation(orientation);
+            feedback.showIndexing(renderer);
+            char capture[48];
+            snprintf(capture, sizeof(capture), "book-indexing-orientation-%d", static_cast<int>(orientation));
+            captureStatusBarScreen(capture);
+            const uint32_t actualFrame = frameHash();
+            renderer.clearScreen();
+            GUI.drawPopup(renderer, tr(STR_INDEXING));
+            if (actualFrame != frameHash()) fail("Indexing retained pixels from the previous notice");
+            if (feedback.showIfPending(renderer)) fail("Loading replaced Indexing");
+          }
+          renderer.setOrientation(originalOrientation);
+          LOG_INF("SMOKE", "Immediate book loading feedback passed");
         }
         activityManager.goToFileBrowser("/books");
         queueStep("File Browser", SmokeStep::FileBrowser);

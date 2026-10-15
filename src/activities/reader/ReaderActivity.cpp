@@ -9,6 +9,7 @@
 #include "CrossPointState.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
+#include "ReaderUtils.h"
 #include "Txt.h"
 #include "TxtReaderActivity.h"
 #include "Xtc.h"
@@ -48,6 +49,13 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
     result.failure = Epub::OpenFailure::OutOfMemory;
     return result;
   }
+  // Resolve the book orientation before any opening notice, without changing global settings.
+  result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
+  const auto previousOrientation = renderer.getOrientation();
+  const uint8_t bookOrientation = result.readerSettings.readerSettings.orientation;
+  ReaderUtils::applyOrientation(
+      renderer, bookOrientation < CrossPointSettings::ORIENTATION_COUNT ? bookOrientation : SETTINGS.orientation);
+
   // First open: building the spine/TOC index (book.bin) takes a couple of seconds. Show the
   // indexing popup so it isn't a silent wait on the home screen. The cachePath/hash is known at
   // construction, so this check is valid before load(); a cached open loads in a blink -> no popup.
@@ -55,12 +63,9 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   if (uncached) {
     // The popup replaces the restored Quick Resume frame, so the reader must clean it.
     allowFastInitialRefresh = false;
-    openingFeedback.finish();
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    openingFeedback.showIndexing(renderer);
   }
-  // Keep one settings snapshot for both EPUB preparation and the reader handoff.
-  result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
-  if (openingFeedback.showIfDue(renderer)) allowFastInitialRefresh = false;
+  if (openingFeedback.showIfPending(renderer)) allowFastInitialRefresh = false;
   // Lend the framebuffer's 48 KB for every EPUB load: even a cached book may
   // rebuild stale/missing CSS and need miniz's ~43 KB streaming workspace. The
   // panel keeps showing its last image, and the next activity redraws fully.
@@ -70,7 +75,9 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
       Epub::XLocationLoadMode::Immediate, true);
   if (loaded) epub->ensureOptimizerImageIndex();
   loan.end();
-  if (loaded && openingFeedback.showIfDue(renderer)) allowFastInitialRefresh = false;
+  if (loaded && openingFeedback.showIfPending(renderer)) allowFastInitialRefresh = false;
+  // The reader applies its settings on entry; failed opens return to the original UI.
+  renderer.setOrientation(previousOrientation);
   if (loaded) {
     result.epub = std::move(epub);
     result.failure = Epub::OpenFailure::None;
@@ -180,7 +187,7 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  openingFeedback.start(millis());
+  openingFeedback.start();
 
   if (isImagePreviewFile(initialBookPath)) {
     GUI.drawPopup(renderer, tr(STR_LOADING));
