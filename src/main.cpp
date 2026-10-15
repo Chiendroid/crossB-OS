@@ -1458,6 +1458,7 @@ void setup() {
       resume == BootResume::SplashlessWake && (isUc8279X3 ? hasValidSleepFrame : Storage.exists(SLEEP_FRAME_FILE));
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
+  bool x3WakeNeedsRefresh = false;
 
   setupDisplayAndFonts(SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame),
                        resume != BootResume::Network, useReaderRenderStack);
@@ -1473,6 +1474,9 @@ void setup() {
               static_cast<unsigned long>(snapshotTarget), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       break;
     case BootResume::SplashlessWake:
+      // Like upstream, clean the first Home paint unless a saved frame restores
+      // the controller baseline or the recovery below already clears the panel.
+      x3WakeNeedsRefresh = gpio.deviceIsX3();
       // One-shot flag: re-arm the splash for the next ordinary boot. Save
       // before any painting so a hang in the blocking paint path can't strand
       // us in a splashless-with-no-frame loop on the next boot.
@@ -1484,6 +1488,7 @@ void setup() {
           // the baseline for the first reader paint without refreshing the panel.
           renderer.cleanupGrayscaleWithFrameBuffer();
           allowFastInitialReaderRefresh = true;
+          x3WakeNeedsRefresh = false;
         }
 #ifndef SIMULATOR
         else if (display.restoreVisibleFrame()) {
@@ -1502,6 +1507,7 @@ void setup() {
         Storage.remove(SLEEP_FRAME_FILE);
         renderer.clearScreen();
         renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        x3WakeNeedsRefresh = false;
       } else if (shouldClearX4WakeGhosting() && SETTINGS.fadingFix != 0) {
         LOG_INF("BOOT", "X4 wake: clearing retained sleep image with half refresh");
         renderer.clearScreen();
@@ -1610,11 +1616,11 @@ void setup() {
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
-    // On X4, use the first Home paint to clean the retained sleep image.
-    const auto homeRefreshMode =
-        resume == BootResume::SplashlessWake && shouldClearX4WakeGhosting() && !x4WakeCanFastPaint
-            ? HalDisplay::HALF_REFRESH
-            : HalDisplay::FAST_REFRESH;
+    // Use the first Home paint to clean any retained sleep image without a restored baseline.
+    const auto homeRefreshMode = x3WakeNeedsRefresh || (resume == BootResume::SplashlessWake &&
+                                                        shouldClearX4WakeGhosting() && !x4WakeCanFastPaint)
+                                     ? HalDisplay::HALF_REFRESH
+                                     : HalDisplay::FAST_REFRESH;
     activityManager.goHome(HomeMenuItem::NONE, homeRefreshMode);
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
