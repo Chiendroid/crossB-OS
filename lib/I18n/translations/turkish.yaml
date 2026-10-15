@@ -941,7 +941,7 @@ STR_LANGUAGE_CATALOG_LIMIT: "Çok fazla dil dosyası veya uzun adlar. SD'de daha
 STR_CLIP: "Alıntı"
 STR_CHECKING_FOR_UPDATES: "Güncellemeler denetleniyor..."
 STR_UPLOADING_CHANGES: "Değişiklikler yükleniyor..."
-STR_KEPT_POSITION_FORMAT: "%%%d konumundan devam edilsin mi (%s)?"
+STR_KEPT_POSITION_FORMAT: "%d%% konumundan devam edilsin mi (%s)?"
 STR_CONTINUE: "Devam et"
 STR_STAY_HERE: "Burada kal"
 STR_MATCHING_CHANGE_WARNING: "Belge eşleştirme değiştirilsin mi? Kitaplar yeni kimlikler alır, bu yüzden sonraki eşitleme her kitabı yeniden denetler. Daha önce yüklenen ilerleme, kitapları web uygulamasında birleştirene kadar eski kimliklerle kalır."
