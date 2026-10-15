@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Кітаптар өзі қайта орналас�
 STR_NOTES_1_6_2_BOOKS_BODY: "Басқа тілдердегі кітаптар сөз тасымалы бумасы орнатылғаннан кейін қайта беттеледі. Оқу орныңыз сақталады."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Тарау үлгерімі пайызы"
+
+STR_SERVER_TYPE: "Сервер түрі"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Басқа"
+STR_CUSTOM_HEADER_1: "Арнайы тақырып 1"
+STR_CUSTOM_HEADER_2: "Арнайы тақырып 2"

@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Bøger omformateres selv"
 STR_NOTES_1_6_2_BOOKS_BODY: "Bøger på andre sprog sættes op igen, når deres orddelingspakke er installeret. Din læseposition bevares."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Kapitelfremskridt i %"
+
+STR_SERVER_TYPE: "Servertype"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Anden"
+STR_CUSTOM_HEADER_1: "Tilpasset header 1"
+STR_CUSTOM_HEADER_2: "Tilpasset header 2"

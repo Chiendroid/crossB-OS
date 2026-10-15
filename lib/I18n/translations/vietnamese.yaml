@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Sách tự dàn lại"
 STR_NOTES_1_6_2_BOOKS_BODY: "Sách ngôn ngữ khác được dàn trang lại khi gói ngắt từ được cài. Vị trí đọc của bạn được giữ nguyên."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Phần trăm tiến độ chương"
+
+STR_SERVER_TYPE: "Loại máy chủ"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Khác"
+STR_CUSTOM_HEADER_1: "Tiêu đề tùy chỉnh 1"
+STR_CUSTOM_HEADER_2: "Tiêu đề tùy chỉnh 2"

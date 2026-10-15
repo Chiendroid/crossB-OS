@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "الكتب تُعاد ترتيبها تلقائي�
 STR_NOTES_1_6_2_BOOKS_BODY: "تُعاد صفحة الكتب بلغات أخرى بعد تثبيت حزمة تقسيم الكلمات. يُحفظ موضع القراءة."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "نسبة التقدم في الفصل"
+
+STR_SERVER_TYPE: "نوع الخادم"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "آخر"
+STR_CUSTOM_HEADER_1: "ترويسة مخصصة 1"
+STR_CUSTOM_HEADER_2: "ترويسة مخصصة 2"

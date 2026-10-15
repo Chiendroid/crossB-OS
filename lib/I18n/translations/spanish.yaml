@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Los libros se reajustan solos"
 STR_NOTES_1_6_2_BOOKS_BODY: "Los libros en otros idiomas se vuelven a maquetar cuando se instala su paquete de guiones. Se conserva tu posición de lectura."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Porcentaje de progreso del capítulo"
+
+STR_SERVER_TYPE: "Tipo de servidor"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Otro"
+STR_CUSTOM_HEADER_1: "Cabecera personalizada 1"
+STR_CUSTOM_HEADER_2: "Cabecera personalizada 2"

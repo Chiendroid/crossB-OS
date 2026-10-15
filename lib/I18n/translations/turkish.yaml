@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Kitaplar kendiliğinden yeniden dizilir"
 STR_NOTES_1_6_2_BOOKS_BODY: "Diğer dillerdeki kitaplar, heceleme paketi kurulunca yeniden dizilir. Okuma konumunuz korunur."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Bölüm İlerleme Yüzdesi"
+
+STR_SERVER_TYPE: "Sunucu türü"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Diğer"
+STR_CUSTOM_HEADER_1: "Özel başlık 1"
+STR_CUSTOM_HEADER_2: "Özel başlık 2"

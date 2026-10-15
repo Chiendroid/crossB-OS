@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "A könyvek maguktól újrarendeződnek"
 STR_NOTES_1_6_2_BOOKS_BODY: "A más nyelvű könyvek újra tördelődnek, amint az elválasztási csomagjuk telepítve van. Az olvasási pozíciód megmarad."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Fejezet haladása százalékban"
+
+STR_SERVER_TYPE: "Szervertípus"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Egyéb"
+STR_CUSTOM_HEADER_1: "Egyéni fejléc 1"
+STR_CUSTOM_HEADER_2: "Egyéni fejléc 2"

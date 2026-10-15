@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Knjige se preoblikujejo same"
 STR_NOTES_1_6_2_BOOKS_BODY: "Knjige v drugih jezikih se znova oblikujejo, ko je nameščen paket za deljenje besed. Vaš položaj branja se ohrani."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Odstotek napredka v poglavju"
+
+STR_SERVER_TYPE: "Vrsta strežnika"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Drugo"
+STR_CUSTOM_HEADER_1: "Glava po meri 1"
+STR_CUSTOM_HEADER_2: "Glava po meri 2"

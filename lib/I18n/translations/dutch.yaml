@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Boeken passen zich zelf aan"
 STR_NOTES_1_6_2_BOOKS_BODY: "Boeken in andere talen worden opnieuw opgemaakt zodra hun afbrekingspakket is geïnstalleerd. Je leespositie blijft behouden."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentage voortgang hoofdstuk"
+
+STR_SERVER_TYPE: "Servertype"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Anders"
+STR_CUSTOM_HEADER_1: "Aangepaste header 1"
+STR_CUSTOM_HEADER_2: "Aangepaste header 2"

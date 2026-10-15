@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Кнігі перабудоўваюцца самі
 STR_NOTES_1_6_2_BOOKS_BODY: "Кнігі на іншых мовах вёрстаюцца нанова пасля ўсталявання пакета пераносаў. Пазіцыя чытання захоўваецца."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Працэнт прагрэсу раздзела"
+
+STR_SERVER_TYPE: "Тып сервера"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Іншы"
+STR_CUSTOM_HEADER_1: "Уласны загаловак 1"
+STR_CUSTOM_HEADER_2: "Уласны загаловак 2"

@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Os livros ajustam-se sozinhos"
 STR_NOTES_1_6_2_BOOKS_BODY: "Os livros noutros idiomas são paginados de novo quando o pacote de hifenização é instalado. A sua posição de leitura é mantida."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentagem de progresso do capítulo"
+
+STR_SERVER_TYPE: "Tipo de servidor"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Outro"
+STR_CUSTOM_HEADER_1: "Cabeçalho personalizado 1"
+STR_CUSTOM_HEADER_2: "Cabeçalho personalizado 2"

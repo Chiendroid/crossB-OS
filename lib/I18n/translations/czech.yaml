@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Knihy se přeskládají samy"
 STR_NOTES_1_6_2_BOOKS_BODY: "Knihy v jiných jazycích se zalomí znovu po instalaci balíčku dělení slov. Vaše pozice čtení zůstane zachována."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Procento přečtení kapitoly"
+
+STR_SERVER_TYPE: "Typ serveru"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Jiný"
+STR_CUSTOM_HEADER_1: "Vlastní hlavička 1"
+STR_CUSTOM_HEADER_2: "Vlastní hlavička 2"

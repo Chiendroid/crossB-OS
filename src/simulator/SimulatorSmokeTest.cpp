@@ -5069,6 +5069,19 @@ class SimulatorSmokeTest {
           step = SmokeStep::ReaderInput;
           break;
         }
+        if (std::getenv("CROSSINK_KOSYNC_SETTINGS_UI")) {
+          KOREADER_STORE.setCustomHeader(0, "CF-Access-Client-Id", "fixture-id");
+          activityManager.replaceActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
+          inputScript.clear();
+          scriptIndex = 0;
+          inputCompletionStep = SmokeStep::Done;
+          inputScript.push_back(render("Sync settings", 100));
+          for (int i = 0; i < 3; ++i) addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+          addTap(MappedInputManager::Button::Confirm);
+          inputScript.push_back(render("Sync server types", 200));
+          step = SmokeStep::ReaderInput;
+          break;
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_APP_NOTES")) {
           activityManager.replaceActivity(std::make_unique<EntryRenderSmokeActivity>(renderer, mappedInputManager));
           queueStep("Entry render isolation and short note", SmokeStep::Done, 8);

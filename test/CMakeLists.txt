@@ -141,3 +141,5 @@ add_subdirectory(asset_catalog)
 add_subdirectory(asset_download)
 add_subdirectory(asset_companion_index)
 add_subdirectory(asset_companion_store)
+
+add_subdirectory(http_header)

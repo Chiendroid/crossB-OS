@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Els llibres es reajusten sols"
 STR_NOTES_1_6_2_BOOKS_BODY: "Els llibres en altres idiomes es tornen a maquetar quan s'instal·la el seu paquet de partició. Es conserva la posició de lectura."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Percentatge de progrés del capítol"
+
+STR_SERVER_TYPE: "Tipus de servidor"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Altre"
+STR_CUSTOM_HEADER_1: "Capçalera personalitzada 1"
+STR_CUSTOM_HEADER_2: "Capçalera personalitzada 2"

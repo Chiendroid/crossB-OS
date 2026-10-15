@@ -1605,3 +1605,7 @@ a restart before another operation or activation of its new mapping.
 ## OPDS server download folders
 
 `/.crosspoint/opds.json` stores an optional `downloadFolder` string on each entry in `servers`. Missing or empty means inherit the global `opdsDownloadFolder` setting; `/` explicitly selects SD root. Other values are normalized absolute SD folder paths (at most 63 UTF-8 bytes). Existing files need no migration. No EPUB cache or settings binary format change is required.
+
+### KOReader server configuration v3
+
+`/.crosspoint/koreader.json` adds `serverType` (0: CrossPoint, 1: KOSync, 2: Other) and up to two `headers` entries with `name` and device-obfuscated `value_obf`. Version 2 configurations retain their URL and opt-ins; the hosted default maps to CrossPoint and custom URLs to KOSync. The pre-v2 legacy-server migration remains separate. No EPUB cache layout changes.

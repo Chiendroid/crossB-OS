@@ -30,6 +30,7 @@
 - Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
 - Show a one-time What's New screen after updating, with a one-click Update for an outdated language pack; reopen it anytime in Settings → System → Release Notes.
 - Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
+- Choose a sync server type and custom authentication headers; compatible servers can receive ISBN, ASIN, and series metadata when sharing metadata is enabled.
 
 ### Fixed
 
@@ -85,6 +86,7 @@
 - Use GitHub Releases for font downloads in builds without a configured custom font host.
 - Make Chapter Progress Percentage available in both reader status-bar slot pickers and web settings (#859).
 - Restore bottom-edge swipe up to Home outside books on touch devices, including X4 Pro; ordinary list swipes still scroll and reader gestures stay unchanged.
+- Accept percentage-only sync positions from compatible servers, including for optimized EPUBs.
 
 ### Changed
 

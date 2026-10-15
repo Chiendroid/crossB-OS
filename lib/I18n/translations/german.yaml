@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Bücher passen sich selbst an"
 STR_NOTES_1_6_2_BOOKS_BODY: "Bücher in anderen Sprachen werden neu umbrochen, sobald ihr Silbentrennungspaket installiert ist. Ihre Leseposition bleibt erhalten."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Kapitelfortschritt in %"
+
+STR_SERVER_TYPE: "Servertyp"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Andere"
+STR_CUSTOM_HEADER_1: "Eigener Header 1"
+STR_CUSTOM_HEADER_2: "Eigener Header 2"

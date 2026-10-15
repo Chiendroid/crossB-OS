@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Knygos persidėsto pačios"
 STR_NOTES_1_6_2_BOOKS_BODY: "Kitomis kalbomis parašytos knygos išdėstomos iš naujo, kai įdiegiamas jų skiemenavimo paketas. Skaitymo vieta išsaugoma."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Skyriaus pažanga procentais"
+
+STR_SERVER_TYPE: "Serverio tipas"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Kitas"
+STR_CUSTOM_HEADER_1: "Pasirinktinė antraštė 1"
+STR_CUSTOM_HEADER_2: "Pasirinktinė antraštė 2"

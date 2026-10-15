@@ -984,3 +984,10 @@ STR_NOTES_1_6_2_BOOKS_TITLE: "Kirjat asettuvat itse"
 STR_NOTES_1_6_2_BOOKS_BODY: "Muunkieliset kirjat taitetaan uudelleen, kun niiden tavutuspaketti on asennettu. Lukukohtasi säilyy."
 
 STR_CHAPTER_PROGRESS_PERCENTAGE: "Luvun edistymisprosentti"
+
+STR_SERVER_TYPE: "Palvelintyyppi"
+STR_CROSSPOINT: "CrossPoint"
+STR_KOSYNC_SERVER: "KOSync"
+STR_OTHER: "Muu"
+STR_CUSTOM_HEADER_1: "Mukautettu otsake 1"
+STR_CUSTOM_HEADER_2: "Mukautettu otsake 2"
