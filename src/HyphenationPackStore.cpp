@@ -1,7 +1,7 @@
 #include "HyphenationPackStore.h"
 
 #include <Arduino.h>
-#include <HalFlashPartition.h>
+#include <AssetCacheStorage.h>
 #include <HalStorage.h>
 #include <LanguageCache.h>
 #include <Logging.h>
@@ -11,8 +11,8 @@
 
 namespace HyphenationPackStore {
 namespace {
-HalFlashPartition flash;
-HalFlashPartition::Mapping mapping;
+AssetCacheStorage flash;
+AssetCacheStorage::Mapping mapping;
 hyphenation_pack::Store store;
 bool initialized = false;
 

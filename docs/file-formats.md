@@ -1561,6 +1561,28 @@ legacy preference to find the newest matching valid slot. Normal saves use a
 synced `.tmp` and recoverable `.bak`; a remaining backup denotes an unfinished
 publication and is restored before settings are loaded or saved.
 
+### SD-backed cache on PSRAM devices
+
+When `spiffs` is missing or fails the language storage size check, PSRAM-equipped
+devices use `/.crosspoint/asset-cache.bin` instead. Its fixed size is `0x360000`;
+the same language slots occupy its last 128 KiB and the same hyphenation banks
+occupy the preceding bytes. This is a new backing store, not a format-version
+change. Compatible flash layouts keep their original backend; flash I/O failures
+do not silently select SD. No partition-table or application-slot writes occur.
+
+Read-only startup treats an absent image as erased storage. Explicit installation
+creates and fills the image with `0xff`. Writes sync and close before returning,
+so the existing checksum and commit-last protocols still apply. A truncated
+image is rejected rather than overwritten. An incomplete initial creation can
+be removed and the packs reinstalled; SD filesystem durability still depends on
+the card. The cache holds installed resources, not book progress or settings.
+
+Each selected mapping is copied to a fallible PSRAM allocation and kept immutable
+until reboot, without retaining an SD file handle. Language slots are 64 KiB;
+the active hyphenation mapping uses only the bank's used bytes, bounded by
+`0x1a0000`. There is no internal-RAM allocation fallback. Missing/corrupt data or
+allocation failure leaves the built-in language/patterns available.
+
 ## SD hyphenation packs and flash banks
 
 SD path: `/.crosspoint/hyphenation/hyph-<code>.cphyph`. The upstream CPHY v1

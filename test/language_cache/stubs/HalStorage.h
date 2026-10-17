@@ -1,5 +1,9 @@
 #pragma once
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,13 +22,15 @@ class HalFile {
  public:
   inline static size_t reads = 0;
   HalFile() = default;
-  explicit HalFile(std::string path) : path_(std::move(path)) {
+  explicit HalFile(std::string path, int flags = O_RDONLY) : path_(std::move(path)) {
     std::error_code ec;
     directory_ = std::filesystem::is_directory(path_, ec);
     if (directory_)
       for (const auto& child : std::filesystem::directory_iterator(path_)) children_.push_back(child.path());
-    else
-      file_ = std::fopen(path_.c_str(), "rb");
+    else {
+      const int fd = ::open(path_.c_str(), flags, 0600);
+      if (fd >= 0) file_ = ::fdopen(fd, (flags & O_RDWR) ? "r+b" : "rb");
+    }
   }
   ~HalFile() { close(); }
   HalFile(HalFile&& other) noexcept { *this = std::move(other); }
@@ -44,6 +50,11 @@ class HalFile {
     ++reads;
     const size_t n = std::fread(dest, 1, count, file_);
     return std::ferror(file_) ? -1 : int(n);
+  }
+  size_t write(const void* bytes, size_t length) { return file_ ? std::fwrite(bytes, 1, length, file_) : 0; }
+  bool sync() {
+    assert(file_);
+    return std::fflush(file_) == 0;
   }
   bool seek(size_t offset) { return file_ && std::fseek(file_, static_cast<long>(offset), SEEK_SET) == 0; }
   size_t fileSize() const {
@@ -80,10 +91,25 @@ class HalStorage {
     static HalStorage storage;
     return storage;
   }
-  HalFile open(const char* path) {
+  HalFile open(const char* path, int flags = O_RDONLY) {
     ++opens;
     const char* root = std::getenv("CROSSINK_TEST_SD");
-    return HalFile(std::string(root ? root : ".") + path);
+    return HalFile(std::string(root ? root : ".") + path, flags);
+  }
+  bool exists(const char* path) {
+    const char* root = std::getenv("CROSSINK_TEST_SD");
+    return std::filesystem::exists(std::string(root ? root : ".") + path);
+  }
+  bool ensureDirectoryExists(const char* path) {
+    const char* root = std::getenv("CROSSINK_TEST_SD");
+    std::error_code ec;
+    std::filesystem::create_directories(std::string(root ? root : ".") + path, ec);
+    return !ec;
+  }
+  bool remove(const char* path) {
+    const char* root = std::getenv("CROSSINK_TEST_SD");
+    std::error_code ec;
+    return std::filesystem::remove(std::string(root ? root : ".") + path, ec);
   }
   bool openFileForRead(const char*, const char* path, HalFile& file) {
     file = open(path);

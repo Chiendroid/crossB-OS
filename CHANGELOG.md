@@ -121,6 +121,7 @@
 - Sync Book on a single book shows which part failed with the book's title underneath and a result line for its progress, reading stats, and clippings.
 - Reduce repeated SD reads when opening EPUBs, browsing Library rows, and preserving reading position through layout changes; reuse temporary TXT indexing scratch without retaining it while reading.
 - Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
+- Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. The bootloader, partition table, and firmware slots remain unchanged (#868).
 
 ## [v1.6.1] - 2026-10-03
 

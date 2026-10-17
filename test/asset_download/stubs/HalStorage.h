@@ -1,4 +1,6 @@
 #pragma once
+#include <fcntl.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -72,6 +74,14 @@ struct FsFile {
     position += size;
     return int(size);
   }
+  size_t write(const void* bytes, size_t size) {
+    if (!opened || directory) return 0;
+    files[path].resize(std::max(files[path].size(), position + size));
+    std::memcpy(files[path].data() + position, bytes, size);
+    position += size;
+    return size;
+  }
+  bool sync() { return opened && !failClose; }
   bool close() {
     if (opened && !directory) --openReaders[path];
     opened = false;
@@ -80,7 +90,13 @@ struct FsFile {
 };
 struct StorageFake {
   bool exists(const char* p) { return files.count(p) || directories.count(p); }
-  FsFile open(const char* p) { return FsFile(p); }
+  FsFile open(const char* p, int flags = O_RDONLY) {
+    if (flags & O_CREAT) {
+      if ((flags & O_EXCL) && exists(p)) return {};
+      files.try_emplace(p);
+    }
+    return FsFile(p);
+  }
   bool openFileForRead(const char*, const char* p, FsFile& f) {
     f = FsFile(p);
     return bool(f);

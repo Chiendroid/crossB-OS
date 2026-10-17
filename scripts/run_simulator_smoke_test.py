@@ -218,6 +218,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        factory_flash = None
+        if args.factory_flash:
+            factory_flash = temp_root / "language-flash.bin"
+            factory_flash.write_bytes(b"\xa5" * 0x14000)
+            env["CROSSINK_LANGUAGE_FLASH"] = str(factory_flash)
         if args.asset_downloads:
             env["CROSSINK_SIMULATOR_SMOKE_ASSET_DOWNLOADS"] = "1"
             env["CROSSINK_ASSET_SMOKE_STAGE"] = "0"
@@ -384,6 +389,9 @@ def run_smoke(args: argparse.Namespace) -> int:
             timeout=args.timeout if args.timeout is not None else (300 if args.asset_downloads else 180 if args.frontlight_layout or args.about or args.support_export or args.filename_font_family else 120),
         )
 
+        if factory_flash and factory_flash.read_bytes() != b"\xa5" * 0x14000:
+            raise AssertionError("Factory partition was modified")
+
     print(proc.stdout, end="")
 
     if proc.returncode != 0:
@@ -442,6 +450,8 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--factory-flash", action="store_true",
+                        help="Use the reported 80 KiB factory partition; verify it remains unchanged (S3 profiles)")
     parser.add_argument("--book", default=str(DEFAULT_BOOK), help="EPUB fixture to copy into the isolated simulator fs_")
     parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
