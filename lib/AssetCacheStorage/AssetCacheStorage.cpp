@@ -4,6 +4,8 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include "AssetCacheReadSession.h"
+
 #ifndef SIMULATOR
 #include <Arduino.h>
 #endif
@@ -30,7 +32,40 @@ HeapByteBuffer allocateSnapshot(size_t length) {
 }
 }  // namespace
 
+AssetCacheReadSession::AssetCacheReadSession(AssetCacheStorage& storage) : storage_(storage) {
+  if (storage_.reader_) {
+    LOG_ERR("ASSET", "Asset cache read session already active");
+    return;
+  }
+  if (!storage_.sd_) {
+    ready_ = true;
+    return;
+  }
+  const bool absent = !Storage.exists(AssetCacheStorage::SD_PATH);
+  if (!absent) {
+    file_ = Storage.open(AssetCacheStorage::SD_PATH);
+    if (!file_ || file_.fileSize() != storage_.size()) {
+      LOG_ERR("ASSET", "Cannot open SD asset cache read session");
+      return;
+    }
+  }
+  storage_.reader_ = &file_;
+  storage_.erasedRead_ = absent;
+  attached_ = ready_ = true;
+}
+AssetCacheReadSession::~AssetCacheReadSession() {
+  if (attached_) {
+    storage_.reader_ = nullptr;
+    storage_.erasedRead_ = false;
+  }
+  if (!file_.close()) LOG_ERR("ASSET", "Cannot close SD asset cache read session");
+}
+
 bool AssetCacheStorage::begin(bool create) {
+  if (reader_) {
+    LOG_ERR("ASSET", "Cannot reopen asset cache during a read session");
+    return false;
+  }
   if (sd_) return beginSd(create);
   if (flash_.begin(create)) return true;
   // Do not mask flash I/O failures or move a valid installed cache to SD.
@@ -79,6 +114,16 @@ bool AssetCacheStorage::beginSd(bool create) {
 bool AssetCacheStorage::read(size_t offset, void* bytes, size_t length) const {
   if (!sd_) return flash_.read(offset, bytes, length);
   if (!contains(offset, length)) return false;
+  if (reader_) {
+    if (erasedRead_) {
+      std::memset(bytes, 0xff, length);
+      return true;
+    }
+    const bool ok = *reader_ && (reader_->position() == offset || reader_->seek(offset)) &&
+                    reader_->read(bytes, length) == static_cast<int>(length);
+    if (!ok) LOG_ERR("ASSET", "Cannot read SD asset cache session");
+    return ok;
+  }
   if (!Storage.exists(SD_PATH)) {
     std::memset(bytes, 0xff, length);
     return true;
@@ -90,6 +135,10 @@ bool AssetCacheStorage::read(size_t offset, void* bytes, size_t length) const {
   return ok && closed;
 }
 bool AssetCacheStorage::write(size_t offset, const void* bytes, size_t length) {
+  if (reader_) {
+    LOG_ERR("ASSET", "Cannot write asset cache during a read session");
+    return false;
+  }
   if (!sd_) return flash_.write(offset, bytes, length);
   if (!contains(offset, length)) return false;
   auto file = Storage.open(SD_PATH, O_RDWR);
@@ -99,6 +148,10 @@ bool AssetCacheStorage::write(size_t offset, const void* bytes, size_t length) {
   return ok && closed;
 }
 bool AssetCacheStorage::erase(size_t offset, size_t length) {
+  if (reader_) {
+    LOG_ERR("ASSET", "Cannot erase asset cache during a read session");
+    return false;
+  }
   if (!sd_) return flash_.erase(offset, length);
   if (!contains(offset, length) || offset % 4096 || length % 4096) return false;
   auto file = Storage.open(SD_PATH, O_RDWR);

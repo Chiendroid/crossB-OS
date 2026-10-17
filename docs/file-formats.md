@@ -1577,6 +1577,12 @@ image is rejected rather than overwritten. An incomplete initial creation can
 be removed and the packs reinstalled; SD filesystem durability still depends on
 the card. The cache holds installed resources, not book progress or settings.
 
+Startup validation and mapping share a scoped read-only SD handle per consumer.
+Consecutive chunks read at the current file position without seeking; bank/slot
+changes seek only when necessary. The handle closes on every return path before
+normal reader or USB activity, and writes are rejected while a read session is
+active. No additional PSRAM buffer is needed for this read optimization.
+
 Each selected mapping is copied to a fallible PSRAM allocation and kept immutable
 until reboot, without retaining an SD file handle. Language slots are 64 KiB;
 the active hyphenation mapping uses only the bank's used bytes, bounded by

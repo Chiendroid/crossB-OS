@@ -2,6 +2,9 @@
 
 #include <HalFlashPartition.h>
 
+class HalFile;
+class AssetCacheReadSession;
+
 // App-owned language/hyphenation cache storage. Compatible flash layouts retain
 // mmap; small factory layouts use an SD image and PSRAM snapshots instead.
 // Neither backend touches the partition table, bootloader, or application slots.
@@ -21,6 +24,9 @@ class AssetCacheStorage {
   static constexpr const char* SD_PATH = "/.crosspoint/asset-cache.bin";
 
  private:
+  friend class AssetCacheReadSession;
+  HalFile* reader_ = nullptr;  // Borrowed only for a scoped startup read session.
+  bool erasedRead_ = false;
   static constexpr size_t SD_SIZE = 0x360000;
   bool contains(size_t offset, size_t length) const { return offset <= size() && length <= size() - offset; }
   bool beginSd(bool create);

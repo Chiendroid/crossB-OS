@@ -20,9 +20,11 @@ class HalFile {
   bool directory_ = false;
 
  public:
-  inline static size_t reads = 0;
+  inline static size_t reads = 0, seeks = 0, liveFiles = 0;
+  inline static bool failOpen = false, failRead = false;
   HalFile() = default;
   explicit HalFile(std::string path, int flags = O_RDONLY) : path_(std::move(path)) {
+    if (failOpen) return;
     std::error_code ec;
     directory_ = std::filesystem::is_directory(path_, ec);
     if (directory_)
@@ -30,6 +32,7 @@ class HalFile {
     else {
       const int fd = ::open(path_.c_str(), flags, 0600);
       if (fd >= 0) file_ = ::fdopen(fd, (flags & O_RDWR) ? "r+b" : "rb");
+      if (file_) ++liveFiles;
     }
   }
   ~HalFile() { close(); }
@@ -48,6 +51,7 @@ class HalFile {
   HalFile(const HalFile&) = delete;
   int read(void* dest, size_t count) {
     ++reads;
+    if (failRead) return -1;
     const size_t n = std::fread(dest, 1, count, file_);
     return std::ferror(file_) ? -1 : int(n);
   }
@@ -56,7 +60,14 @@ class HalFile {
     assert(file_);
     return std::fflush(file_) == 0;
   }
-  bool seek(size_t offset) { return file_ && std::fseek(file_, static_cast<long>(offset), SEEK_SET) == 0; }
+  size_t position() const {
+    assert(file_);
+    return static_cast<size_t>(std::ftell(file_));
+  }
+  bool seek(size_t offset) {
+    ++seeks;
+    return file_ && std::fseek(file_, static_cast<long>(offset), SEEK_SET) == 0;
+  }
   size_t fileSize() const {
     std::error_code ec;
     return std::filesystem::file_size(path_, ec);
@@ -78,6 +89,7 @@ class HalFile {
     if (file_) {
       ok = std::fclose(file_) == 0;
       file_ = nullptr;
+      --liveFiles;
     }
     directory_ = false;
     return ok;

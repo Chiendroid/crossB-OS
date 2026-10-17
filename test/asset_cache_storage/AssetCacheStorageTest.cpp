@@ -1,3 +1,4 @@
+#include <AssetCacheReadSession.h>
 #include <AssetCacheStorage.h>
 #include <Memory.h>
 #include <unistd.h>
@@ -27,8 +28,50 @@ int main() {
   uint8_t data[128];
   assert(storage.read(0, data, sizeof(data)));
   for (auto byte : data) assert(byte == 0xff);
+  {
+    const auto opens = HalStorage::opens;
+    AssetCacheReadSession empty(storage);
+    assert(empty && storage.read(0, data, sizeof(data)));
+    for (auto byte : data) assert(byte == 0xff);
+    assert(HalStorage::opens == opens && HalFile::liveFiles == 0);
+  }
   assert(storage.begin(true));
   assert(std::filesystem::file_size(sdPath) == storage.size());
+  {
+    const auto opens = HalStorage::opens, seeks = HalFile::seeks;
+    AssetCacheReadSession reads(storage);
+    assert(reads && HalFile::liveFiles == 1);
+    // A checksum pass over 128 KiB needs one open and one initial seek,
+    // rather than 1024 opens and seeks. The handle keeps its FAT position.
+    for (size_t chunk = 0; chunk < 1024; ++chunk) assert(storage.read(4096 + chunk * sizeof(data), data, sizeof(data)));
+    assert(HalStorage::opens == opens + 1 && HalFile::seeks == seeks + 1);
+    {
+      AssetCacheReadSession nested(storage);
+      assert(!nested);
+    }
+    assert(!storage.begin() && !storage.write(0, data, sizeof(data)) && !storage.erase(0, 4096));
+    assert(storage.read(0, data, sizeof(data)));  // backward reads still work
+    assert(HalFile::seeks == seeks + 2 && HalFile::liveFiles == 1);
+    failSnapshotAllocation = true;
+    AssetCacheStorage::Mapping failedMap;
+    assert(!storage.map(0, sizeof(data), failedMap));
+    failSnapshotAllocation = false;
+  }
+  assert(HalFile::liveFiles == 0);
+  HalFile::failOpen = true;
+  {
+    AssetCacheReadSession failed(storage);
+    assert(!failed);
+  }
+  HalFile::failOpen = false;
+  {
+    AssetCacheReadSession reads(storage);
+    assert(reads);
+    HalFile::failRead = true;
+    assert(!storage.read(0, data, sizeof(data)));
+    HalFile::failRead = false;
+  }
+  assert(HalFile::liveFiles == 0);
   std::memset(data, 0x42, sizeof(data));
   assert(storage.write(0, data, sizeof(data)));
   AssetCacheStorage::Mapping snapshot;

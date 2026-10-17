@@ -1,5 +1,6 @@
 #include "I18n.h"
 
+#include <AssetCacheReadSession.h>
 #include <HalStorage.h>
 #include <I18nStrings.h>
 #include <Logging.h>
@@ -88,6 +89,11 @@ void I18n::begin(const char* preferredCode, uint64_t generation) {
   const uint64_t start = microseconds();
   if (!flash_.begin()) {
     LOG_ERR("LANG", "Cannot open cached language %s; using %s", preferredCode, active_.name);
+    return;
+  }
+  AssetCacheReadSession reads(flash_);
+  if (!reads) {
+    LOG_ERR("LANG", "Cannot read cached language %s; using %s", preferredCode, active_.name);
     return;
   }
   Installed selected;
