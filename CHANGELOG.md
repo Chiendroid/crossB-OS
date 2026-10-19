@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
+
 - Keep web dialogs open when a text-selection drag ends outside the dialog, while preserving backdrop clicks and upload-in-progress protection (adapted from Crestwave, CrossPoint #3931).
 - Normalize new web-upload filenames to composed Unicode (NFC), including duplicate checks, so accented filenames remain accessible across platforms (adapted from serialx, CrossPoint #3961).
 - Explain OPDS feed failures caused by credentials, withheld credentials across origins, server errors, or no response (adapted from Marco Rojas, CrossPoint #3872).
