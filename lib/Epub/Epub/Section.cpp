@@ -46,11 +46,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v94: Fieldset defaults add bordered containers and change page layout.
 // v95: Image-only paragraphs retain publisher alignment independently of prose.
 // v96: Allow line breaks after visible hyphens/dashes without inserting spaces.
-constexpr uint8_t SECTION_FILE_VERSION = 96;
+// v97: Keep hyphenated word boundaries closed during justification.
+constexpr uint8_t SECTION_FILE_VERSION = 97;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD1;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD2;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +

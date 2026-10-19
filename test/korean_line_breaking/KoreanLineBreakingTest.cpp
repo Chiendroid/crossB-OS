@@ -245,3 +245,29 @@ TEST(EmDashLineBreaking, InlineStyleBoundaryAfterDashIsBreakable) {
   }));
   EXPECT_EQ(lines, (std::vector<std::string>{"foo—", "bar"}));
 }
+
+TEST(EmDashLineBreaking, JustificationDoesNotStretchInsideCompound) {
+  for (const bool hyphenation : {false, true}) {
+    for (const char* compound : {"place-card", "place–card", "place—card"}) {
+      SCOPED_TRACE(compound);
+      const auto lines = layout({"a", compound, "holders", "xxxxxxxxxxxxxxxx"}, hyphenation, 180);
+      ASSERT_GE(lines.size(), 2u);
+      ASSERT_EQ(lines[0].words.size(), 4u);
+      EXPECT_EQ(lines[0].words[2], "card");
+      // Only the two real word spaces share the spare width (28 px).
+      EXPECT_EQ(lines[0].xpos, (std::vector<int16_t>{0, 26, 74, 124}));
+    }
+  }
+}
+
+TEST(EmDashLineBreaking, RealSpaceAfterHyphenStillExpands) {
+  const auto lines = layout({"a", "place-", "card", "holders", "xxxxxxxxxxxxxxxx"}, false, 180);
+  ASSERT_GE(lines.size(), 2u);
+  EXPECT_EQ(lines[0].xpos, (std::vector<int16_t>{0, 20, 80, 124}));
+}
+
+TEST(EmDashLineBreaking, CjkBoundariesStillJustify) {
+  const auto lines = layout({"漢字漢字漢字"}, false, 38);
+  ASSERT_EQ(lines.size(), 2u);
+  EXPECT_EQ(lines[0].xpos, (std::vector<int16_t>{0, 10, 20, 30}));
+}

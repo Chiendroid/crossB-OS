@@ -460,9 +460,8 @@ size_t gapSlotsBeforeToken(const std::string& leftWord, const std::string& right
   if (guideDotBefore) {
     return guideDotGapSlots(rightWord);
   }
-  if (noSpaceBefore) {
-    return isClosingPunctuationForJustify(firstCodepoint(rightWord)) ? 0 : 1;
-  }
+  // A same-word boundary may allow wrapping after a hyphen, but must not stretch.
+  // CJK boundaries (noSpaceBefore without continues) remain justification slots.
   if (continues) {
     return rightWord == " " ? 1 : 0;
   }
