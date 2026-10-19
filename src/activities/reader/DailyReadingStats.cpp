@@ -55,7 +55,7 @@ bool monthFor(uint32_t day, uint32_t& first, uint8_t& count) {
 }
 // A corrupt slot can fall back; I/O errors and unknown versions must never be overwritten.
 bool readSlot(uint32_t first, uint8_t count, int slot, bool& exists, bool& valid, uint32_t& generation,
-              Counter* counters = nullptr) {
+              Counter* counters = nullptr, const Counter* synced = nullptr) {
   char path[64];
   monthPath(path, first, slot);
   exists = Storage.exists(path);
@@ -92,6 +92,8 @@ bool readSlot(uint32_t first, uint8_t count, int slot, bool& exists, bool& valid
     hash = hashBytes(hash, data, 8);
     const Counter counter{le32(data), le32(data + 4)};
     ok = ok && counter.uploaded <= counter.seconds && (i < count || (!counter.seconds && !counter.uploaded));
+    // Cleanup also proves that the newest acknowledgments cover every older total.
+    if (synced && counter.seconds > synced[i].uploaded) ok = false;
     if (counters) counters[i] = counter;
   }
   if (ok && file.read(data, 4) != 4) {
@@ -317,6 +319,40 @@ bool migrateMonth(uint32_t first, uint8_t count) {
   migratedMonths[0] = first;
   return true;
 }
+bool pruneMonth(uint32_t first, uint8_t count) {
+  if (!migrateMonth(first, count)) return false;
+  Month month;
+  if (!loadMonth(first, count, month)) return false;
+  if (month.slot < 0) return true;
+  for (const auto& counter : month.days)
+    if (counter.seconds != counter.uploaded) return true;
+  // A corrupt sibling could hide a newer unsynced checkpoint. Unlike normal
+  // recovery reads, deletion requires every existing slot to be valid and covered.
+  for (int slot = 0; slot < 2; ++slot) {
+    bool exists, valid;
+    uint32_t generation = 0;
+    if (!readSlot(first, count, slot, exists, valid, generation, nullptr, month.days)) return false;
+    if (exists && !valid) {
+      LOG_ERR("DailyStats", "Retaining uncertain monthly history");
+      return false;
+    }
+  }
+  // Keep the newest fully acknowledged copy until last. A failed delete or reboot
+  // leaves enough information to retry, without reviving an older unacknowledged copy.
+  for (int slot : {1 - month.slot, month.slot}) {
+    char path[64];
+    monthPath(path, first, slot);
+    if (Storage.exists(path) && !Storage.remove(path)) {
+      LOG_ERR("DailyStats", "Monthly cleanup deferred: %s", path);
+      return false;
+    }
+  }
+  for (auto& c : cache)
+    if (c.day >= first && c.day - first < count) c = {};
+  for (auto& migrated : migratedMonths)
+    if (migrated == first) migrated = UINT32_MAX;
+  return true;
+}
 bool save(Cache& c) {
   if (!c.dirty) return true;
   if (!write(c.day, c.counter)) return false;
@@ -389,6 +425,36 @@ bool uploadPending(bool (*upload)(void*, uint32_t, uint32_t), void* context) {
       counter.uploaded = counter.seconds;
       if (!write(first + i, counter)) return false;
     }
+    after = first;
+  }
+}
+
+bool pruneSyncedMonths(const ReadingStatsDate& today) {
+  if (!today.isValid()) {
+    LOG_ERR("DailyStats", "Skipping cleanup without a valid local date");
+    return false;
+  }
+  ReadingStatsDate previous{today.year, today.month, 1};
+  if (previous.month == 1) {
+    if (previous.year == 2000) return true;
+    --previous.year;
+    previous.month = 12;
+  } else {
+    --previous.month;
+  }
+  const uint32_t keepFrom = readingStatsDayIndex(previous);
+  // Accepted but uncheckpointed time must participate in the retention decision.
+  if (!flush()) return false;
+  bool ok = true;
+  uint32_t after = UINT32_MAX;
+  for (;;) {
+    uint32_t first;
+    if (!nextMonth(after, first)) return false;
+    if (first == UINT32_MAX || first >= keepFrom) return ok;
+    uint8_t count;
+    uint32_t unused;
+    if (!monthFor(first, unused, count)) return false;
+    if (!pruneMonth(first, count)) ok = false;
     after = first;
   }
 }

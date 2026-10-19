@@ -599,3 +599,167 @@ TEST_F(DailyReading, LegacyReadErrorsKeepAllSourcesAndHigherTotals) {
     EXPECT_EQ(c.uploaded, 100u);
   }
 }
+
+static uint32_t dateDay(uint16_t year, uint8_t month, uint8_t day = 1) {
+  return readingStatsDayIndex({year, month, day});
+}
+static bool hasMonth(const char* month) {
+  return Storage.exists(monthFile(month, 'a').c_str()) || Storage.exists(monthFile(month, 'b').c_str());
+}
+TEST_F(DailyReading, CleanupKeepsRecentFutureAndUnsyncedMonths) {
+  ASSERT_TRUE(write(dateDay(2026, 5), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2026, 6), {100, 0}));
+  ASSERT_TRUE(write(dateDay(2026, 7), {100, 99}));
+  ASSERT_TRUE(write(dateDay(2026, 8), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2026, 8, 31), {1, 0}));
+  ASSERT_TRUE(write(dateDay(2026, 9), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2026, 10), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2026, 11), {100, 100}));
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_FALSE(hasMonth("2026-05"));
+  for (const char* month : {"2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11"})
+    EXPECT_TRUE(hasMonth(month));
+  ASSERT_TRUE(uploadPending([](void*, uint32_t, uint32_t) { return true; }, nullptr));
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  for (const char* month : {"2026-06", "2026-07", "2026-08"}) EXPECT_FALSE(hasMonth(month));
+  for (const char* month : {"2026-09", "2026-10", "2026-11"}) EXPECT_TRUE(hasMonth(month));
+}
+TEST_F(DailyReading, CleanupUsesCalendarMonthsAcrossYearAndLeapBoundaries) {
+  ASSERT_TRUE(write(dateDay(2027, 11, 30), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2027, 12, 31), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2028, 1), {100, 100}));
+  ASSERT_TRUE(pruneSyncedMonths({2028, 1, 1}));
+  EXPECT_FALSE(hasMonth("2027-11"));
+  EXPECT_TRUE(hasMonth("2027-12"));
+  EXPECT_TRUE(hasMonth("2028-01"));
+  ASSERT_TRUE(write(dateDay(2028, 2, 29), {100, 100}));
+  ASSERT_TRUE(pruneSyncedMonths({2028, 3, 1}));
+  EXPECT_FALSE(hasMonth("2027-12"));
+  EXPECT_FALSE(hasMonth("2028-01"));
+  EXPECT_TRUE(hasMonth("2028-02"));
+}
+TEST_F(DailyReading, CleanupWithoutValidDateChangesNothing) {
+  ASSERT_TRUE(write(dateDay(2000, 1), {100, 100}));
+  const size_t writes = faults.writes;
+  for (ReadingStatsDate date : {ReadingStatsDate{}, {2026, 2, 29}, {1999, 12, 31}, {2100, 1, 1}}) {
+    EXPECT_FALSE(pruneSyncedMonths(date));
+    EXPECT_TRUE(hasMonth("2000-01"));
+  }
+  EXPECT_TRUE(pruneSyncedMonths({2000, 1, 1}));
+  EXPECT_TRUE(pruneSyncedMonths({2000, 2, 29}));
+  EXPECT_TRUE(hasMonth("2000-01"));
+  EXPECT_EQ(faults.writes, writes);
+}
+TEST_F(DailyReading, CleanupFlushesUnsyncedCachedSecondsAndClearsDeletedCache) {
+  const uint32_t day = dateDay(2026, 8);
+  ASSERT_TRUE(record(day, 60));
+  ASSERT_TRUE(write(day, {60, 60}));
+  ASSERT_TRUE(record(day, 5));  // accepted, but not checkpointed
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  Counter c;
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 65u);
+  EXPECT_EQ(c.uploaded, 60u);
+  ASSERT_TRUE(write(day, {65, 65}));
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_FALSE(hasMonth("2026-08"));
+  uint32_t seconds;
+  ASSERT_TRUE(secondsFor(day, seconds));
+  EXPECT_EQ(seconds, 0u);
+  ASSERT_TRUE(flush());
+  EXPECT_FALSE(hasMonth("2026-08"));
+}
+TEST_F(DailyReading, FailedFlushPreventsCleanup) {
+  ASSERT_TRUE(write(dateDay(2026, 7), {100, 100}));
+  ASSERT_TRUE(record(dateDay(2026, 8), 5));
+  faults.failOpenWrite = true;
+  EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_TRUE(hasMonth("2026-07"));
+  faults.failOpenWrite = false;
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_FALSE(hasMonth("2026-07"));
+  EXPECT_TRUE(hasMonth("2026-08"));
+}
+TEST_F(DailyReading, CleanupRetriesEitherDeletionWithoutLosingNewestAcknowledgment) {
+  for (bool newestIsA : {false, true}) {
+    for (bool failNewest : {false, true}) {
+      Storage.reset();
+      reboot();
+      const uint32_t day = dateDay(2026, 8);
+      ASSERT_TRUE(write(day, {100, 0}));
+      ASSERT_TRUE(write(day, {100, 100}));
+      if (newestIsA) ASSERT_TRUE(write(day, {200, 200}));
+      const char newest = newestIsA ? 'a' : 'b';
+      const char older = newestIsA ? 'b' : 'a';
+      Storage.failNextRemove(monthFile("2026-08", failNewest ? newest : older));
+      EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+      EXPECT_TRUE(Storage.exists(monthFile("2026-08", newest).c_str()));
+      EXPECT_EQ(Storage.exists(monthFile("2026-08", older).c_str()), !failNewest);
+      reboot();
+      Counter c;
+      ASSERT_TRUE(read(day, c));
+      EXPECT_EQ(c.seconds, newestIsA ? 200u : 100u);
+      EXPECT_EQ(c.uploaded, c.seconds);
+      ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+      EXPECT_FALSE(hasMonth("2026-08"));
+    }
+  }
+}
+TEST_F(DailyReading, CleanupPreservesCorruptOrUnknownSnapshotsAndContinuesOtherMonths) {
+  for (bool futureVersion : {false, true}) {
+    Storage.reset();
+    reboot();
+    const uint32_t day = dateDay(2026, 7);
+    ASSERT_TRUE(write(day, {100, 100}));
+    ASSERT_TRUE(write(day, {200, 0}));
+    auto& bytes = Storage.files.at(monthFile("2026-07", 'b'))->bytes;
+    if (futureVersion)
+      bytes[0] = 3;
+    else
+      bytes[20] ^= 1;
+    ASSERT_TRUE(write(dateDay(2026, 8), {100, 100}));
+    EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+    EXPECT_TRUE(Storage.exists(monthFile("2026-07", 'a').c_str()));
+    EXPECT_TRUE(Storage.exists(monthFile("2026-07", 'b').c_str()));
+    EXPECT_FALSE(hasMonth("2026-08"));
+  }
+}
+TEST_F(DailyReading, CleanupPreservesReadErrorsAndStopsOnDirectoryErrors) {
+  ASSERT_TRUE(write(dateDay(2026, 7), {100, 100}));
+  ASSERT_TRUE(write(dateDay(2026, 8), {100, 100}));
+  faults.failScan = true;
+  EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_TRUE(hasMonth("2026-07"));
+  EXPECT_TRUE(hasMonth("2026-08"));
+  faults.failScan = false;
+  faults.readErrorPath = monthFile("2026-07", 'a');
+  faults.readErrorAfter = 12;
+  EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_TRUE(hasMonth("2026-07"));
+  EXPECT_FALSE(hasMonth("2026-08"));
+}
+TEST_F(DailyReading, CleanupRequiresAcknowledgmentsToCoverBothCopies) {
+  const uint32_t day = dateDay(2026, 8);
+  ASSERT_TRUE(write(day, {100, 100}));
+  ASSERT_TRUE(write(day, {200, 200}));
+  // A valid but inconsistent older generation contains additional unacknowledged time.
+  snapshotWord(Storage.files.at(monthFile("2026-08", 'a'))->bytes, 12, 300);
+  EXPECT_FALSE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_TRUE(Storage.exists(monthFile("2026-08", 'a').c_str()));
+  EXPECT_TRUE(Storage.exists(monthFile("2026-08", 'b').c_str()));
+}
+TEST_F(DailyReading, CleanupConvertsLegacyWithoutDeletingUnsyncedHistory) {
+  seedLegacy(dateDay(2026, 7), {100, 100});
+  seedLegacy(dateDay(2026, 8), {200, 100}, ".tmp");
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_FALSE(Storage.exists(legacyFile(dateDay(2026, 7)).c_str()));
+  EXPECT_FALSE(hasMonth("2026-07"));
+  EXPECT_TRUE(hasMonth("2026-08"));
+  Counter c;
+  ASSERT_TRUE(read(dateDay(2026, 8), c));
+  EXPECT_EQ(c.seconds, 200u);
+  EXPECT_EQ(c.uploaded, 100u);
+  const size_t writes = faults.writes;
+  ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
+  EXPECT_EQ(faults.writes, writes);
+}

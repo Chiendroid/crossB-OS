@@ -115,6 +115,11 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
   result = context.result;
   if (!complete && result == Result::Ok) result = Result::InvalidResponse;
   if (!complete) LOG_ERR("ReadingSync", "Daily counter upload incomplete");
+  if (complete) {
+    ReadingStatsDateTime local;
+    if (getCurrentLocalDailyReadingDateTime(local) && !DailyReadingStats::pruneSyncedMonths(local.date))
+      LOG_ERR("ReadingSync", "Synced monthly history cleanup deferred");
+  }
   return result;
 }
 

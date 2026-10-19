@@ -1491,8 +1491,7 @@ catalog without requiring a manual font refresh. The binary layout is unchanged.
 
 Device-local counters live in `/.crosspoint/daily_reading/YYYY-MM.a.bin` and
 `YYYY-MM.b.bin`. Each month uses at most two 264-byte snapshots, regardless of
-how many days were read. No rolling retention cutoff is applied (dates support
-2000–2099). All integers are little-endian:
+how many days were read (dates support 2000–2099). All integers are little-endian:
 
 | Offset | Size | Meaning |
 | --- | --- | --- |
@@ -1530,6 +1529,19 @@ order by rescanning filenames, avoiding an unbounded file list and directory
 cursor invalidation during migration. Checkpoint work uses one 256-byte month
 buffer plus small serialized chunks, with no new heap allocation or retained
 history buffer. The sync payload and server API are unchanged.
+
+After successful daily stats sync, the reader removes fully acknowledged months
+older than the previous calendar month. Current, previous, and future months stay,
+as does any month with unuploaded seconds. Cleanup requires a valid local date,
+flushes accepted in-memory time first, and validates every existing snapshot;
+corrupt, unknown, or unreadable data is retained. The newest acknowledgments must
+cover every total in either snapshot. Older snapshots are deleted first so an
+interrupted cleanup retains the newest acknowledged copy for retry. Cleanup errors
+are logged and retried on a later successful sync without marking the completed
+upload as failed. This only removes local daily-time files: uploaded server history,
+book progress, and separate global/book statistics are unchanged. Deleted local
+history is not downloaded again, so it cannot be re-uploaded to a different server
+or account later. Unsynced offline history has no age-based cutoff.
 
 Only accepted page intervals in the existing EPUB/XTC stats paths contribute.
 Idle intervals over the configured threshold are rejected in full; menus,
