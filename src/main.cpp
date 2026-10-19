@@ -84,6 +84,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "FilenameFontSystem.h"
 #include "GlobalActions.h"
 #include "HyphenationPackStore.h"
 #include "KOReaderCredentialStore.h"
@@ -1209,8 +1210,10 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   if (loadReaderResources) {
     sdFontSystem.begin(renderer);
   } else {
-    LOG_DBG("MAIN", "Skipping EPUB scratch workspace and SD fonts for minimal network boot");
+    LOG_DBG("MAIN", "Skipping EPUB scratch workspace and SD reader fonts for minimal network boot");
   }
+  // Startup notices and minimal-network screens use translated UI text too.
+  filenameFontSystem.ensureLoaded(renderer);
 }
 
 void setup() {
@@ -1683,6 +1686,10 @@ void loop() {
     // while every filesystem/UI/global path remains suspended by the activity.
     (void)UsbSerialFileTransfer::process(false);
     activityManager.loop();
+#ifdef SIMULATOR
+    // Let storage-handoff smoke checks advance while normal app work is paused.
+    runSimulatorSmokeTestTick();
+#endif
     if (activityManager.preventAutoSleep()) {
       powerManager.setPowerSaving(false);
       delay(10);

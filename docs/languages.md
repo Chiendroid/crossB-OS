@@ -146,14 +146,21 @@ STR_TIME_EXAMPLE: "Unknown keys are ignored"
 - Font glyph coverage and available keyboard layouts are unchanged. A new
   translation file cannot add missing font glyphs, shaping rules, or keyboards.
 
-## Filename fallback fonts (X4 Classic, X4 Pro, Sticky)
+## UI Font (X4 Classic, X4 Pro, Sticky)
+
+The selected font fills missing characters throughout the interface, including
+translated menu labels, dialogs, and keyboards. It also covers EPUB/XTC chapter
+lists, reader-menu book and chapter titles, bookmark labels, clipping
+previews/details, reading-statistics titles, and the
+frontlight panel’s book details. It fills only missing glyphs, keeping
+built-in glyphs and your reading font unchanged. No script-detection list is used.
 
 If your book titles or filenames use an alphabet the built-in font does not have (for example Chinese), they can show as blank boxes. You can add a font to fill in those characters.
 
-Open **Settings > System > Device > Filename Fallback Font**, directly below
-Language, to choose it.
+Open **Settings > System > Device > UI Font** to choose it.
 The built-in UI font continues to draw characters it supports, including Latin
-characters inside mixed-script titles. Menu labels keep their built-in fonts.
+characters inside mixed-script titles and translated menus. Selecting a UI Font
+does not replace characters already supported by the built-in font.
 Select **None** to disable filename fallback. This option is available on the
 X4 Classic, X4 Pro, and Sticky, but not on the X3 or X4.
 
@@ -173,6 +180,11 @@ font, but shares the bounded font-rendering workspace. Missing or unreadable
 families recover to the built-in UI without changing the saved choice. Reopen
 the picker and select the family again after changing its files on a computer.
 A firmware restart also reloads the selected family.
+
+The UI font remains available on ordinary Wi-Fi screens. File Transfer and its
+child screens temporarily use built-in fonts because HTTP/WebDAV can replace
+the font files. USB Drive also releases the font before handing the card to
+your computer. The selected UI font reloads when you return to another screen.
 
 ## Advanced and maintainer details
 

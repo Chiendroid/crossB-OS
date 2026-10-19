@@ -63,12 +63,17 @@
 #include "activities/home/HomeActivity.h"
 #include "activities/home/RecentBookProgress.h"
 #include "activities/library/LibraryActivity.h"
+#include "activities/network/CrossPointWebServerActivity.h"
 #include "activities/network/StatsUploadActivity.h"
+#include "activities/network/UsbDriveActivity.h"
 #include "activities/reader/BookLoadingFeedback.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsView.h"
 #include "activities/reader/EpubReaderActivity.h"
+#include "activities/reader/EpubReaderBookmarkListActivity.h"
+#include "activities/reader/EpubReaderChapterSelectionActivity.h"
+#include "activities/reader/EpubReaderClippingListActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/EpubReaderFootnotesActivity.h"
 #include "activities/reader/EpubReaderUtils.h"
@@ -78,6 +83,7 @@
 #include "activities/reader/SideButtonShortcuts.h"
 #include "activities/reader/TxtReaderActivity.h"
 #include "activities/reader/XtcReaderActivity.h"
+#include "activities/reader/XtcReaderMenuActivity.h"
 #include "activities/settings/AboutActivity.h"
 #include "activities/settings/AssetDownloadActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
@@ -3358,8 +3364,10 @@ class SimulatorSmokeTest {
         filenameFontSystem.invalidate();
         if (!filenameFontSystem.ensureLoaded(renderer)) fail("None filename font failed");
         const auto device = buildSystemDeviceSettingsList(getSettingsList());
-        if (device[3].action != SettingAction::Language || device[4].action != SettingAction::FilenameFallbackFont)
-          fail("Filename setting is not directly below Language");
+        if (std::none_of(device.begin(), device.end(), [](const SettingInfo& setting) {
+              return setting.action == SettingAction::FilenameFallbackFont;
+            }))
+          fail("Filename setting missing from Device settings");
         std::vector<std::string> names;
         if (!filenameFontSystem.discover(names) || std::find(names.begin(), names.end(), family) == names.end())
           fail("Filename fixture family missing");
@@ -3370,15 +3378,21 @@ class SimulatorSmokeTest {
         queueStep("Filename Settings entry", SmokeStep::Start, 4);
         break;
       }
-      case 1:
+      case 1: {
+        const auto device = buildSystemDeviceSettingsList(getSettingsList());
+        const auto fontSetting = std::find_if(device.begin(), device.end(), [](const SettingInfo& setting) {
+          return setting.action == SettingAction::FilenameFallbackFont;
+        });
         for (int i = 0; i < 3; ++i) addTap(MappedInputManager::Button::Confirm);
         addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
         addTap(MappedInputManager::Button::Confirm);
         inputScript.push_back(render("Filename Device settings", 4));
         inputScript.push_back(assertSettingsNavigation(3, 1));
-        for (int i = 0; i < 4; ++i) addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
-        inputScript.push_back(render("Filename setting below Language", 4));
+        for (int i = 0; i < std::distance(device.begin(), fontSetting); ++i)
+          addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        inputScript.push_back(render("Filename fallback setting", 4));
         break;
+      }
       case 2: {
         RenderLock lock;
         captureStatusBarScreen("filename-device-setting");
@@ -3409,11 +3423,23 @@ class SimulatorSmokeTest {
           const auto& primary = fonts.at(id);
           const auto& composite = fonts.at(compositeId);
           for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}) {
-            if (primary.getGlyphData('A', style).glyph != composite.getGlyphData('A', style).glyph)
+            if (primary.getGlyphData('A', style).fontData != primary.getData(style) ||
+                primary.getGlyphData('A', style).glyph != composite.getGlyphData('A', style).glyph)
               fail("Filename font replaced built-in Latin");
             const auto cjk = composite.getGlyphData(0x4e00, style);
             if (!composite.hasCodepoint(0x4e00) || !cjk.glyph || cjk.fontData == primary.getData(style))
               fail("Missing CJK fallback glyph");
+            const bool covered = primary.hasCodepoint(0x4e00, style);
+            const auto sharedCjk = primary.getGlyphData(0x4e00, style);
+            const int sharedWidth = renderer.getTextWidth(id, "Menu 一 Հայերեն", style);
+            const int aliasWidth = renderer.getTextWidth(compositeId, "Menu 一 Հայերեն", style);
+            // Scalable glyph descriptors rotate through scratch slots; compare
+            // their owning font and measured text, not transient addresses.
+            if (!covered || !sharedCjk.glyph || sharedCjk.fontData != cjk.fontData || sharedWidth != aliasWidth) {
+              LOG_ERR("SMOKE", "UI font %d style %d: covered=%d width=%d/%d", id, int(style), covered, sharedWidth,
+                      aliasWidth);
+              fail("Shared UI font does not measure/draw the fallback");
+            }
           }
         }
         JsonDocument saved;
@@ -3491,12 +3517,14 @@ class SimulatorSmokeTest {
         captureStatusBarScreen("filename-library");
         activityManager.simulatorCurrentActivity()->startActivityForResult(
             std::make_unique<StatsUploadActivity>(renderer, mappedInputManager), [](const ActivityResult&) {});
-        queueStep("Filename network child releases font", SmokeStep::Start, 5);
+        queueStep("UI font remains available to network child", SmokeStep::Start, 5);
         break;
       }
       case 11: {
         RenderLock lock;
-        if (renderer.filenameFontId(UI_10_FONT_ID) != UI_10_FONT_ID) fail("Network child retained filename font");
+        if (!renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("Network child lost translated UI fallback");
+        captureStatusBarScreen("ui-translated-network");
         addTap(MappedInputManager::Button::Back);
         inputScript.push_back(render("Filename Library restored after network child", 6));
         inputScript.push_back(assertActivity("Library"));
@@ -3507,12 +3535,96 @@ class SimulatorSmokeTest {
         if (renderer.filenameFontId(UI_10_FONT_ID) == UI_10_FONT_ID) fail("Network child return lost filename font");
         captureStatusBarScreen("filename-library-after-network");
         sdFontSystem.releaseForNetwork(renderer);
-        if (renderer.filenameFontId(UI_10_FONT_ID) != UI_10_FONT_ID) fail("Filename font retained at storage release");
-        if (!filenameFontSystem.ensureLoaded(renderer)) fail("Filename font failed after storage release");
+        if (!renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("Network release removed shared UI glyphs");
+        filenameFontSystem.suspend(renderer);
+        filenameFontSystem.suspend(renderer);
+        filenameFontSystem.resume();
+        if (filenameFontSystem.ensureLoaded(renderer) || renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("Nested storage suspension reloaded UI font");
+        filenameFontSystem.resume();
+        if (!filenameFontSystem.ensureLoaded(renderer)) fail("UI font failed after storage release");
         const auto identity = filenameFontSystem.fingerprint();
         sdFontSystem.releaseLoadedFont(renderer);
         if (renderer.filenameFontId(UI_10_FONT_ID) == UI_10_FONT_ID || filenameFontSystem.fingerprint() != identity)
           fail("Reader font release changed filename fallback");
+        // Simulate direct entry after a cold resume/network release: reader
+        // metadata screens must load their own fallback, without visiting Home.
+        SETTINGS.uiScale = CrossPointSettings::UI_SCALE_SMALL;
+        UITheme::getInstance().reload();
+        filenameFontSystem.release(renderer);
+        auto epub = std::make_shared<Epub>(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
+        if (!epub->load()) fail("Metadata EPUB could not load");
+        activityManager.replaceActivity(std::make_unique<EpubReaderChapterSelectionActivity>(
+            renderer, mappedInputManager, epub, epub->getPath(), 0));
+        queueStep("Metadata chapters after cold entry", SmokeStep::Start, 8);
+        break;
+      }
+      case 13: {
+        RenderLock lock;
+        if (renderer.filenameFontId(UI_10_FONT_ID) == UI_10_FONT_ID) fail("Chapter entry did not load fallback");
+        captureStatusBarScreen("metadata-chapters-small");
+        SETTINGS.uiScale = CrossPointSettings::UI_SCALE_LARGE;
+        UITheme::getInstance().reload();
+        auto epub = std::make_shared<Epub>(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
+        if (!epub->load()) fail("Large metadata EPUB could not load");
+        activityManager.replaceActivity(std::make_unique<EpubReaderChapterSelectionActivity>(
+            renderer, mappedInputManager, epub, epub->getPath(), 0));
+        queueStep("Metadata chapters large", SmokeStep::Start, 6);
+        break;
+      }
+      case 14: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-chapters-large");
+        Bookmark bookmark{};
+        std::strcpy(bookmark.chapterTitle, "Chapter 一 Հայերեն");
+        std::strcpy(bookmark.snippet, "Latin title 一 Հայերեն");
+        bookmark.progress = 0.5f;
+        activityManager.replaceActivity(std::make_unique<EpubReaderBookmarkListActivity>(
+            renderer, mappedInputManager, std::vector<Bookmark>{bookmark}));
+        queueStep("Metadata bookmarks", SmokeStep::Start, 6);
+        break;
+      }
+      case 15: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-bookmarks");
+        if (!CLIPPINGS.loadForBook("/books/metadata.epub", "Latin 一 Հայերեն", "Author", "epub"))
+          fail("Metadata clipping store failed");
+        if (CLIPPINGS.addClipping(0, 0, 0, 1, 0, 4, 5, "Chapter 一 Հայերեն", 0,
+                                  "Latin excerpt 一 Հայերեն with more words for wrapping.", 0,
+                                  0) != ClippingStore::AddResult::Added)
+          fail("Metadata clipping fixture failed");
+        activityManager.replaceActivity(std::make_unique<EpubReaderClippingListActivity>(renderer, mappedInputManager));
+        queueStep("Metadata clippings", SmokeStep::Start, 6);
+        break;
+      }
+      case 16: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-clippings");
+        addTap(MappedInputManager::Button::Confirm);
+        inputScript.push_back(render("Metadata clipping detail", 6));
+        break;
+      }
+      case 17: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-clipping-detail");
+        activityManager.replaceActivity(std::make_unique<XtcReaderMenuActivity>(
+            renderer, mappedInputManager, "Latin book title 一 Հայերեն", true, false, true, true));
+        queueStep("Metadata book menu", SmokeStep::Start, 6);
+        break;
+      }
+      case 18: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-book-menu");
+        SETTINGS.filenameFallbackFont[0] = '\0';
+        filenameFontSystem.ensureLoaded(renderer);
+        activityManager.simulatorCurrentActivity()->requestUpdate();
+        queueStep("Metadata book menu without fallback", SmokeStep::Start, 6);
+        break;
+      }
+      case 19: {
+        RenderLock lock;
+        captureStatusBarScreen("metadata-book-menu-none");
         std::strcpy(SETTINGS.filenameFallbackFont, "Missing Family");
         if (filenameFontSystem.ensureLoaded(renderer) || renderer.filenameFontId(UI_10_FONT_ID) != UI_10_FONT_ID ||
             std::strcmp(SETTINGS.filenameFallbackFont, "Missing Family") != 0)
@@ -3522,10 +3634,76 @@ class SimulatorSmokeTest {
         SETTINGS.filenameFallbackFont[0] = '\0';
         if (!filenameFontSystem.ensureLoaded(renderer) || renderer.filenameFontId(UI_10_FONT_ID) != UI_10_FONT_ID)
           fail("None did not remove filename fallback");
+        if (renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("None left shared UI fallback registered");
+        // Settings must load the shared UI font even without a Home/Library
+        // visit. --language-file can add missing characters to these labels.
+        std::strncpy(SETTINGS.filenameFallbackFont, family, sizeof(SETTINGS.filenameFallbackFont) - 1);
+        SETTINGS.uiScale = CrossPointSettings::UI_SCALE_SMALL;
+        UITheme::getInstance().reload();
+        activityManager.replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInputManager));
+        queueStep("Translated Settings cold entry", SmokeStep::Start, 6);
+        break;
+      }
+      case 20: {
+        RenderLock lock;
+        if (!renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("Cold Settings entry did not load UI font");
+        captureStatusBarScreen("ui-translated-settings-small");
+        SETTINGS.uiScale = CrossPointSettings::UI_SCALE_LARGE;
+        UITheme::getInstance().reload();
+        activityManager.replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInputManager));
+        queueStep("Translated Settings large", SmokeStep::Start, 6);
+        break;
+      }
+      case 21: {
+        RenderLock lock;
+        captureStatusBarScreen("ui-translated-settings-large");
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<UsbDriveActivity>(renderer, mappedInputManager), [](const ActivityResult&) {});
+        queueStep("USB Drive suspends UI font", SmokeStep::Start, 6);
+        break;
+      }
+      case 22: {
+        RenderLock lock;
+        if (renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00) || filenameFontSystem.ensureLoaded(renderer))
+          fail("USB Drive reopened UI font while storage is handed off");
+        activityManager.popActivity();
+        queueStep("Translated Settings restored after USB", SmokeStep::Start, 6);
+        break;
+      }
+      case 23: {
+        RenderLock lock;
+        if (!renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("Settings return did not restore UI fallback");
+        captureStatusBarScreen("ui-translated-settings-after-usb");
+        activityManager.simulatorCurrentActivity()->startActivityForResult(
+            std::make_unique<CrossPointWebServerActivity>(renderer, mappedInputManager), [](const ActivityResult&) {});
+        queueStep("File Transfer child keeps UI font suspended", SmokeStep::Start, 6);
+        break;
+      }
+      case 24: {
+        RenderLock lock;
+        if (renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00) || filenameFontSystem.ensureLoaded(renderer))
+          fail("File Transfer child reloaded the selected UI font");
+        addTap(MappedInputManager::Button::Back);
+        inputScript.push_back(render("Home restored after File Transfer cancellation", 8));
+        break;
+      }
+      case 25: {
+        RenderLock lock;
+        if (!activityManager.simulatorCurrentActivity()->isHomeActivity() ||
+            !renderer.getFontMap().at(UI_10_FONT_ID).hasCodepoint(0x4e00))
+          fail("File Transfer exit did not restore UI fallback");
+        SETTINGS.filenameFallbackFont[0] = '\0';
+        filenameFontSystem.ensureLoaded(renderer);
+        for (int id : {SMALL_FONT_ID, UI_10_FONT_ID, UI_12_FONT_ID}) {
+          if (renderer.getFontMap().at(id).hasCodepoint(0x4e00)) fail("None retained borrowed UI glyphs");
+        }
         LOG_INF("SMOKE",
                 "Simulator smoke test passed: filename picker, mixed Latin/CJK, both UI sizes, Library, Home refresh, "
-                "persistence, storage "
-                "release and reader independence");
+                "chapter lists, bookmarks, clippings, reader-menu titles, cold entry, persistence, storage "
+                "suspension, network labels, shared UI fonts, Settings return and reader independence");
         std::_Exit(0);
       }
     }

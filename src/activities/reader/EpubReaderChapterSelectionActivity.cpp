@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -34,6 +35,10 @@ int EpubReaderChapterSelectionActivity::getTotalItems() const { return epub->get
 
 void EpubReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   ignoreInitialUpRelease = mappedInput.isPhysicalPressed(MappedInputManager::Button::Up);
   ignoreInitialDownRelease = mappedInput.isPhysicalPressed(MappedInputManager::Button::Down);
   mappedInput.setReaderTouchscreenOverride(true);
@@ -153,6 +158,7 @@ void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& s
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   const int totalItems = getTotalItems();
+  FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.labelText = screen.theme().bodyText;
   const auto rows = configureUiList(props, screen.theme(), screen.body());
