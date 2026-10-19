@@ -95,6 +95,7 @@
 - Center footer button hints using their actual font height (Uri Tauber, CrossPoint #3865).
 - Avoid extra temporary allocations when navigating Home’s cover grid (adapted from Sung-jin Brian Hong, CrossPoint #3848).
 - Clear the retained sleep image when X3 wakes to Home without a restored Quick Resume frame, including with Sunlight Fading Fix enabled.
+- Restore Touch Reader Controls in Settings → Controls → Taps & Gestures so reader touch gestures can be re-enabled on the device after being turned off in the web portal (#871).
 
 ### Changed
 

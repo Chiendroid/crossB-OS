@@ -1486,12 +1486,6 @@ class SimulatorSmokeTest {
   }
 
   static void verifyReaderControlsSettings() {
-    const auto& base = getBaseSettingsList();
-    const size_t expectedBaseSettingsCapacity = getBaseSettingsCapacity();
-    if (base.size() != expectedBaseSettingsCapacity || base.capacity() < expectedBaseSettingsCapacity) {
-      fail("Base settings allocation mismatch: size=%zu expected=%zu capacity=%zu", base.size(),
-           expectedBaseSettingsCapacity, base.capacity());
-    }
     const auto all = getSettingsList();
     const auto controls = buildControlsSettingsParentList(all);
     if (!deviceHasFrontButtons()) {
@@ -1524,19 +1518,63 @@ class SimulatorSmokeTest {
     SETTINGS.fromJson(navigationOriginal.as<JsonVariantConst>());
     const auto gestures = buildControlsTapsGesturesSettingsList(all);
     if (gpio.hasTouch()) {
-      if (gestures.size() < 3 || gestures[0].nameId != StrId::STR_NEXT_PAGE ||
-          gestures[1].nameId != StrId::STR_PREV_PAGE || gestures[0].enumValues != gestures[1].enumValues) {
+      if (gestures.empty() || gestures[0].nameId != StrId::STR_TOUCH_READER_CONTROLS ||
+          gestures[0].valuePtr != &CrossPointSettings::touchReaderControls) {
+        fail("Reader touch toggle missing from device gesture settings");
+      }
+      if (gestures.size() < 4 || gestures[1].nameId != StrId::STR_NEXT_PAGE ||
+          gestures[2].nameId != StrId::STR_PREV_PAGE || gestures[1].enumValues != gestures[2].enumValues) {
         fail("Page gesture settings order/options mismatch");
       }
-      if (gpio.supportsMultiTouch() && (gestures.size() < 4 || gestures[3].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
+      if (gpio.supportsMultiTouch() && (gestures.size() < 5 || gestures[4].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
         fail("Two-finger rotation gesture setting order mismatch");
       }
-      const size_t statusIndex = gpio.supportsMultiTouch() ? 4 : 2;
+      const size_t statusIndex = gpio.supportsMultiTouch() ? 5 : 3;
       if (gestures.size() <= statusIndex || gestures[statusIndex].nameId != StrId::STR_TAP_HIDE_STATUS_BAR) {
         fail("Status bar gesture setting order mismatch");
       }
+      JsonDocument beforeEditor;
+      SETTINGS.toJson(beforeEditor);
+      SETTINGS.touchReaderControls = CrossPointSettings::TOUCH_READER_OFF;
+      RenderLock editorLock;
+      SettingsActivity editor(renderer, mappedInputManager);
+      editor.onEnter();
+      const auto press = [&](MappedInputManager::Button button) {
+        mappedInputManager.simulatorInjectRelease(button);
+        editor.loop();
+        mappedInputManager.simulatorClearInputFrame();
+      };
+      press(MappedInputManager::Button::Confirm);
+      press(MappedInputManager::Button::Confirm);
+      if (editor.simulatorCategoryIndex() != 2) fail("Cannot reach Controls settings");
+      const auto gestureMenu = std::find_if(controls.begin(), controls.end(), [](const SettingInfo& setting) {
+        return setting.action == SettingAction::ControlsTapsGestures;
+      });
+      if (gestureMenu == controls.end()) fail("Taps & Gestures submenu missing");
+      for (size_t i = 0; i <= static_cast<size_t>(gestureMenu - controls.begin()); ++i) {
+        press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+      }
+      press(MappedInputManager::Button::Confirm);
+      if (editor.simulatorActiveSubmenu() != SettingAction::ControlsTapsGestures)
+        fail("Cannot open Taps & Gestures settings");
+      editor.render(std::move(editorLock));
+      captureStatusBarScreen("touch-reader-controls-off");
+      press(MappedInputManager::Button::Confirm);
+      if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_ON)
+        fail("Device setting did not re-enable reader touch controls");
+      editor.render(std::move(editorLock));
+      captureStatusBarScreen("touch-reader-controls-on");
+      editor.onExit();
+      SETTINGS.fromJson(beforeEditor.as<JsonVariantConst>());
     } else if (!gestures.empty()) {
       fail("Touch gestures exposed on a button-only device");
+    }
+    LOG_INF("SMOKE", "Reader touch device settings visibility and activation passed");
+    const auto& base = getBaseSettingsList();
+    const size_t expectedBaseSettingsCapacity = getBaseSettingsCapacity();
+    if (base.size() != expectedBaseSettingsCapacity || base.capacity() < expectedBaseSettingsCapacity) {
+      fail("Base settings allocation mismatch: size=%zu expected=%zu capacity=%zu", base.size(),
+           expectedBaseSettingsCapacity, base.capacity());
     }
     const auto device = buildSystemDeviceSettingsList(all);
     if (device.size() < 3 || device[1].nameId != StrId::STR_TIME_TO_SLEEP ||
