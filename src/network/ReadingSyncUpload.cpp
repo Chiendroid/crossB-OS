@@ -93,60 +93,28 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
   if (!StatsUploadPayload::global(payload, capacity, deviceId, global)) return Result::InvalidResponse;
   auto result = client.put("/api/v1/stats/global", payload, false);
   if (result != Result::Ok) return result;
-  if (!DailyReadingStats::flush()) return Result::InvalidResponse;
-  if (!Storage.exists(DailyReadingStats::DIRECTORY)) return Result::Ok;
-  FsFile dir = Storage.open(DailyReadingStats::DIRECTORY);
-  if (!dir) {
-    LOG_ERR("ReadingSync", "Cannot open daily reading history");
-    return dir.allocationFailed() ? Result::LowMemory : Result::Server;
-  }
-  if (!dir.isDirectory()) {
-    dir.close();
-    return Result::InvalidResponse;
-  }
-  // Stream one day at a time. RAM and request size stay fixed even after years offline.
-  for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
-    char name[32]{};
-    const size_t nameLength = file.getName(name, sizeof(name));
-    const bool regular = !file.isDirectory();
-    file.close();
-    if (regular && nameLength == 0) {
-      result = Result::Server;
-      break;
-    }
-    unsigned day = 0;
-    const size_t length = strlen(name);
-    bool digits = (length == 9 && strcmp(name + 5, ".bin") == 0) ||
-                  (length == 13 && (strcmp(name + 5, ".bin.bak") == 0 || strcmp(name + 5, ".bin.tmp") == 0));
-    for (size_t i = 0; digits && i < 5; ++i) {
-      digits = name[i] >= '0' && name[i] <= '9';
-      day = day * 10 + unsigned(name[i] - '0');
-    }
-    if (!regular || !digits) continue;
-    DailyReadingStats::Counter counter;
-    if (!DailyReadingStats::read(day, counter)) {
-      result = Result::InvalidResponse;
-      break;
-    }
-    if (counter.uploaded == counter.seconds) continue;
-    if (!StatsUploadPayload::global(payload, capacity, deviceId, global, day, counter.seconds)) {
-      result = Result::InvalidResponse;
-      break;
-    }
-    result = client.put("/api/v1/stats/global", payload, false, true);
-    if (result != Result::Ok) break;
-    counter.uploaded = counter.seconds;
-    if (!DailyReadingStats::write(day, counter)) {
-      result = Result::InvalidResponse;
-      break;
-    }
-  }
-  if (result == Result::Ok && dir.allocationFailed()) result = Result::LowMemory;
-#ifndef SIMULATOR
-  if (result == Result::Ok && dir.iterationFailed()) result = Result::Server;
-#endif
-  if (result != Result::Ok) LOG_ERR("ReadingSync", "Daily counter upload incomplete");
-  dir.close();
+  struct UploadContext {
+    StatsUploadClient& client;
+    char* payload;
+    size_t capacity;
+    const char* deviceId;
+    const GlobalReadingStats& global;
+    Result result = Result::Ok;
+  } context{client, payload, capacity, deviceId, global};
+  const bool complete = DailyReadingStats::uploadPending(
+      [](void* opaque, uint32_t day, uint32_t seconds) {
+        auto& ctx = *static_cast<UploadContext*>(opaque);
+        if (!StatsUploadPayload::global(ctx.payload, ctx.capacity, ctx.deviceId, ctx.global, day, seconds)) {
+          ctx.result = Result::InvalidResponse;
+          return false;
+        }
+        ctx.result = ctx.client.put("/api/v1/stats/global", ctx.payload, false, true);
+        return ctx.result == Result::Ok;
+      },
+      &context);
+  result = context.result;
+  if (!complete && result == Result::Ok) result = Result::InvalidResponse;
+  if (!complete) LOG_ERR("ReadingSync", "Daily counter upload incomplete");
   return result;
 }
 
