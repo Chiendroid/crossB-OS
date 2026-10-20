@@ -34,6 +34,8 @@
 - Swipe left on File Browser, Library list, and bookmark rows to reveal a delete button, with confirmation before removal (adapted from Uri Tauber, CrossPoint #3712).
 - Fill missing characters throughout the UI, including translated menu labels and dialogs, using the selected UI Font while preserving built-in characters and the reading font.
 
+- Assign Rotate Page 180° to Power, Home, front-button long presses, and button chords as well as side buttons, from device or web settings.
+
 ### Fixed
 
 - Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
@@ -99,6 +101,8 @@
 - Avoid extra temporary allocations when navigating Home’s cover grid (adapted from Sung-jin Brian Hong, CrossPoint #3848).
 - Clear the retained sleep image when X3 wakes to Home without a restored Quick Resume frame, including with Sunlight Fading Fix enabled.
 - Restore Touch Reader Controls in Settings → Controls → Taps & Gestures so reader touch gestures can be re-enabled on the device after being turned off in the web portal (#871).
+
+- Show all button shortcut settings on the web portal, including option lists too long for the previous response buffer.
 
 ### Changed
 

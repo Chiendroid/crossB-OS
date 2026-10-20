@@ -1491,6 +1491,120 @@ class SimulatorSmokeTest {
     std::fclose(image);
   }
 
+  static void verifyRotateShortcutPickers() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    SETTINGS.menuNavigation = CrossPointSettings::MENU_NAV_DIRECTIONAL;
+    const auto all = getSettingsList();
+    const auto controls = buildControlsSettingsParentList(all);
+    const auto verify = [&](const SettingInfo& setting, const uint8_t raw) {
+      const auto choice = std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw);
+      if (choice == setting.enumRawValues.end() ||
+          std::count(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw) != 1 ||
+          sideButtonOptionLabel(setting, static_cast<uint8_t>(choice - setting.enumRawValues.begin())) !=
+              tr(STR_ROTATE_FLIP))
+        fail("Rotate Page 180 missing, duplicated, or mislabeled: %s", setting.key);
+      SETTINGS.*setting.valuePtr = raw;
+      JsonDocument saved;
+      SETTINGS.toJson(saved);
+      SETTINGS.*setting.valuePtr = 255;
+      SETTINGS.fromJson(saved.as<JsonVariantConst>());
+      if (SETTINGS.*setting.valuePtr != raw) fail("Rotate Page 180 did not reload: %s", setting.key);
+    };
+    // Home uses the same shared catalog on hardware with a Home key.
+    const auto home = buildHomeButtonActionSetting(StrId::STR_HOME_BUTTON_TAP, &CrossPointSettings::homeButtonTapAction,
+                                                   "homeButtonTapAction");
+    const auto homeChoice =
+        std::find(home.enumRawValues.begin(), home.enumRawValues.end(), CrossPointSettings::ROTATE_FLIP);
+    if (homeChoice == home.enumRawValues.end() ||
+        sideButtonOptionLabel(home, homeChoice - home.enumRawValues.begin()) != tr(STR_ROTATE_FLIP))
+      fail("Home catalog is missing Rotate Page 180");
+    for (const auto submenu : {SettingAction::ControlsPowerButton, SettingAction::ControlsFrontButtons,
+                               SettingAction::ControlsSideButtons, SettingAction::ControlsHomeButton}) {
+      const auto parent = std::find_if(controls.begin(), controls.end(),
+                                       [submenu](const SettingInfo& s) { return s.action == submenu; });
+      if (parent == controls.end()) continue;
+      const auto rows = submenu == SettingAction::ControlsPowerButton    ? buildControlsPowerSettingsList(all)
+                        : submenu == SettingAction::ControlsFrontButtons ? buildControlsFrontButtonSettingsList(all)
+                        : submenu == SettingAction::ControlsHomeButton   ? buildControlsHomeButtonSettingsList(all)
+                                                                         : buildControlsSideButtonSettingsList(all);
+      for (size_t row = 0; row < rows.size(); ++row) {
+        const auto& setting = rows[row];
+        const auto trigger = QuickActions::triggerForSetting(setting.valuePtr);
+        if (trigger == QuickActions::Trigger::None && !settingKeyIs(setting, "longPressButtonBehavior")) continue;
+        const bool chord = trigger == QuickActions::Trigger::PowerUp || trigger == QuickActions::Trigger::UpDown;
+        const bool longPress = trigger == QuickActions::Trigger::LongBack || trigger == QuickActions::Trigger::LongMenu;
+        const bool side =
+            trigger == QuickActions::Trigger::SideUpShort || trigger == QuickActions::Trigger::SideUpLong ||
+            trigger == QuickActions::Trigger::SideDownShort || trigger == QuickActions::Trigger::SideDownLong;
+        const uint8_t raw = settingKeyIs(setting, "longPressButtonBehavior") ? CrossPointSettings::ORIENTATION_FLIP
+                            : chord                                          ? CrossPointSettings::CHORD_ROTATE_FLIP
+                            : longPress                                      ? CrossPointSettings::LONG_MENU_ROTATE_FLIP
+                            : side                                           ? CrossPointSettings::SIDE_ROTATE_FLIP
+                                                                             : CrossPointSettings::ROTATE_FLIP;
+        verify(setting, raw);
+        const auto index =
+            std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw) - setting.enumRawValues.begin();
+        // Start on the preceding option, then select Rotate through the actual popup.
+        SETTINGS.*setting.valuePtr = setting.enumRawValues[index - 1];
+        RenderLock lock;
+        SettingsActivity editor(renderer, mappedInputManager);
+        editor.onEnter();
+        const auto press = [&](MappedInputManager::Button button) {
+          mappedInputManager.simulatorInjectRelease(button);
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+        };
+        press(MappedInputManager::Button::Confirm);
+        press(MappedInputManager::Button::Confirm);
+        if (editor.simulatorCategoryIndex() != 2) fail("Cannot reach Controls");
+        for (size_t i = 0; i <= static_cast<size_t>(parent - controls.begin()); ++i)
+          press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        press(MappedInputManager::Button::Confirm);
+        if (editor.simulatorActiveSubmenu() != submenu) fail("Cannot enter shortcut submenu");
+        for (size_t i = 0; editor.simulatorSelectedIndex() != static_cast<int>(row + 1) && i <= rows.size(); ++i)
+          press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        if (editor.simulatorSelectedIndex() != static_cast<int>(row + 1)) fail("Cannot reach shortcut row");
+        editor.render(std::move(lock));
+        press(MappedInputManager::Button::Confirm);
+        press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+        editor.render(std::move(lock));
+        captureStatusBarScreen((std::string("rotate-") + setting.key).c_str());
+        mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
+        editor.loop();
+        mappedInputManager.simulatorClearInputFrame();
+        press(MappedInputManager::Button::Confirm);
+        if (SETTINGS.*setting.valuePtr != raw) fail("Picker did not select Rotate Page 180: %s", setting.key);
+        editor.onExit();
+        LOG_INF("SMOKE", "Rotate picker selected and captured: %s", setting.key);
+      }
+    }
+    for (const bool textReader : {false, true}) {
+      std::unique_ptr<Activity> reader;
+      if (textReader)
+        reader = std::make_unique<TxtReaderActivity>(renderer, mappedInputManager, nullptr, 0);
+      else
+        reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
+                                                      EpubReaderActivity::BookReaderSettingsData{}, 0);
+      for (uint8_t orientation = 0; orientation < CrossPointSettings::ORIENTATION_COUNT; ++orientation) {
+        SETTINGS.orientation = orientation;
+        ReaderUtils::applyOrientation(renderer, orientation);
+        // Chords use the typed overload; Home uses the raw-value overload.
+        if (!reader->handleShortcutAction(CrossPointSettings::ROTATE_FLIP) ||
+            SETTINGS.orientation != ReaderUtils::flippedOrientation(orientation) ||
+            renderer.getOrientation() != ReaderUtils::toRendererOrientation(SETTINGS.orientation))
+          fail("Typed Rotate shortcut failed");
+        if (!reader->handleShortcutAction(static_cast<uint8_t>(CrossPointSettings::ROTATE_FLIP)) ||
+            SETTINGS.orientation != orientation ||
+            renderer.getOrientation() != ReaderUtils::toRendererOrientation(orientation))
+          fail("Raw Rotate shortcut failed");
+      }
+    }
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    LOG_INF("SMOKE", "Simulator smoke test passed: Rotate Page 180 shortcut pickers and EPUB/TXT handlers");
+  }
+
   static void verifyReaderControlsSettings() {
     const auto all = getSettingsList();
     const auto controls = buildControlsSettingsParentList(all);
@@ -1790,8 +1904,8 @@ class SimulatorSmokeTest {
       fail("Quick Actions is missing from the Power + Up chord setting");
     }
     if (CrossPointSettings::HOME_READER != 36 || CrossPointSettings::SELECT_CHAPTER != 38 ||
-        CrossPointSettings::SHORT_PWRBTN_COUNT != 39 || CrossPointSettings::CHORD_HOME_READER != 32 ||
-        CrossPointSettings::CHORD_SELECT_CHAPTER != 34 || CrossPointSettings::POWER_CHORD_ACTION_COUNT != 35) {
+        CrossPointSettings::SHORT_PWRBTN_COUNT != 40 || CrossPointSettings::CHORD_HOME_READER != 32 ||
+        CrossPointSettings::CHORD_SELECT_CHAPTER != 34 || CrossPointSettings::POWER_CHORD_ACTION_COUNT != 36) {
       fail("Home/Reader changed persisted shortcut IDs or counts");
     }
     if (QuickActions::actionLabel(CrossPointSettings::HOME_READER) != StrId::STR_HOME_READER) {
@@ -5692,6 +5806,24 @@ class SimulatorSmokeTest {
           activityManager.replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInputManager));
           queueStep("Frontlight layout Home", SmokeStep::FrontlightLayout, 4);
           break;
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ROTATE_SHORTCUTS")) {
+          verifyRotateShortcutPickers();
+          verifyUpDownShortcutAvailability();
+          if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ROTATE_WEB")) {
+            // Serve the production page/API for an external browser round-trip check.
+            WiFi.mode(WIFI_AP);
+            auto server = std::make_unique<CrossPointWebServer>();
+            server->begin();
+            if (!server->isRunning()) fail("Shortcut web test server did not start");
+            const auto started = millis();
+            while (millis() - started < 240000) {
+              server->handleClient();
+              delay(5);
+            }
+            server->stop();
+          }
+          std::_Exit(0);
         }
         verifyStatusBarTextSizes();
         verifyLoadingPopupBackdrop();
