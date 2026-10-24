@@ -5,13 +5,6 @@
 #include <esp_sntp.h>
 #include <time.h>
 
-HalClock halClock;  // Singleton instance
-
-void HalClock::begin() {
-  _available = _sdkRtc.begin();
-  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
-}
-
 namespace {
 // UTC calendar date -> Unix epoch, no timezone involvement (newlib has no
 // timegm). Days-from-civil per Howard Hinnant's algorithm.
@@ -28,6 +21,30 @@ time_t epochFromUtc(const Rtc::DateTime& dt) {
 }
 }  // namespace
 
+HalClock halClock;  // Singleton instance
+
+void HalClock::begin() {
+  _available = _sdkRtc.begin();
+  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
+  if (_available) {
+    Rtc::DateTime dt;
+    if (!_sdkRtc.now(dt)) {
+      LOG_INF("CLK", "RTC uninitialized (VL flag set), seeding initial time");
+      dt.year = 2026;
+      dt.month = 10;
+      dt.day = 25;
+      dt.hour = 7;
+      dt.minute = 0;
+      dt.second = 0;
+      dt.weekday = 0;
+      _sdkRtc.set(dt);
+      _cachedUtc = epochFromUtc(dt);
+      _hasCachedTime = true;
+      _lastPollMs = millis() != 0 ? millis() : 1;
+    }
+  }
+}
+
 void HalClock::setTimezone(const char* posixTz) {
   setenv("TZ", posixTz && posixTz[0] != '\0' ? posixTz : "UTC0", 1);
   tzset();
@@ -35,21 +52,30 @@ void HalClock::setTimezone(const char* posixTz) {
 }
 
 bool HalClock::localTime(struct tm& out) const {
-  if (!_available) return false;
-
   const unsigned long now = millis();
-  if (_lastPollMs == 0 || (now - _lastPollMs) >= CLOCK_POLL_MS) {
-    Rtc::DateTime dt;
-    if (_sdkRtc.now(dt)) {
-      _cachedUtc = epochFromUtc(dt);
-      _hasCachedTime = true;
-    } else if (!_hasCachedTime) {
-      return false;
+  if (_available) {
+    if (_lastPollMs == 0 || (now - _lastPollMs) >= CLOCK_POLL_MS) {
+      Rtc::DateTime dt;
+      if (_sdkRtc.now(dt)) {
+        _cachedUtc = epochFromUtc(dt);
+        _hasCachedTime = true;
+      }
+      _lastPollMs = now != 0 ? now : 1;  // 0 doubles as the invalidation sentinel
     }
-    _lastPollMs = now != 0 ? now : 1;  // 0 doubles as the invalidation sentinel
+    if (_hasCachedTime) {
+      const time_t currentUtc = _cachedUtc + (now >= _lastPollMs ? (now - _lastPollMs) / 1000 : 0);
+      localtime_r(&currentUtc, &out);
+      return true;
+    }
   }
-  localtime_r(&_cachedUtc, &out);
-  return true;
+
+  const time_t sysNow = time(nullptr);
+  if (sysNow > 86400) {
+    localtime_r(&sysNow, &out);
+    return true;
+  }
+
+  return false;
 }
 
 bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {

@@ -22,8 +22,8 @@ class HalClock {
   // Call after BoardConfig has selected the active device.
   void begin();
 
-  // True if an RTC is present on this device
-  bool isAvailable() const { return _available; }
+  // True if an RTC is present on this device or system clock is valid
+  bool isAvailable() const { return _available || time(nullptr) > 86400; }
 
   // Set the POSIX TZ rule (e.g. "CET-1CEST,M3.5.0,M10.5.0/3") applied to every
   // read. nullptr/empty falls back to UTC. Drops the read cache so the change

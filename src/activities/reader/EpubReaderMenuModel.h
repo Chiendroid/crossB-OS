@@ -344,6 +344,7 @@ struct ReaderSettingsDraft {
   uint8_t imageRendering = 0;
   uint8_t epubRenderMode = 0;
   uint8_t indexingMethod = 0;
+  uint8_t readingUnderlineStyle = 0;
 };
 
 inline void restoreReaderDraftFont(ReaderSettingsDraft& draft, const ReaderSettingsDraft& lastGood) {

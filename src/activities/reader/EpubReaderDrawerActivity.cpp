@@ -645,6 +645,7 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   value.imageRendering = SETTINGS.imageRendering;
   value.epubRenderMode = 0;
   value.indexingMethod = 0;
+  value.readingUnderlineStyle = SETTINGS.readingUnderlineStyle;
   return value;
 }
 
@@ -667,6 +668,7 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.extraParagraphSpacing = value.extraParagraphSpacing;
   SETTINGS.embeddedStyle = value.embeddedStyle;
   SETTINGS.imageRendering = value.imageRendering;
+  SETTINGS.readingUnderlineStyle = value.readingUnderlineStyle;
 }
 
 void EpubReaderDrawerActivity::markSettingChanged(const ReaderSettingsChangeMask mask) {
@@ -1921,7 +1923,7 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       labels = {"T\u1eaft", "N\u00e9t li\u1ec1n (\u2500\u2500\u2500\u2500)", "N\u00e9t ch\u1ea5m (\u00b7\u00b7\u00b7\u00b7)", "N\u00e9t \u0111\u1ee9t (- - - -)"};
       raw = {CrossPointSettings::UNDERLINE_OFF, CrossPointSettings::UNDERLINE_SOLID, CrossPointSettings::UNDERLINE_DOTTED,
              CrossPointSettings::UNDERLINE_DASHED};
-      currentRaw = SETTINGS.readingUnderlineStyle;
+      currentRaw = draft.readingUnderlineStyle;
       break;
     case RowId::Orientation:
       title = StrId::STR_ORIENTATION;
@@ -2060,9 +2062,10 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       markSettingChanged(ReaderSettingsChangeMask::Orientation);
       break;
     case RowId::Underline:
-      SETTINGS.readingUnderlineStyle = value;
-      SETTINGS.saveToFile();
-      markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
+      draft.readingUnderlineStyle = value;
+      enumOptionSelectedIndex = static_cast<int16_t>(index);
+      previewedEnumOptionIndex = -1;
+      markSettingChanged(ReaderSettingsChangeMask::NonLayout);
       break;
     case RowId::Alignment:
       draft.paragraphAlignment = value;
@@ -3122,7 +3125,7 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       return TtfRenderOptionsActivity::rowValue(TtfRenderOptionsActivity::Row::Reset, ttfRenderProfile);
 #endif
     case RowId::Underline:
-      switch (SETTINGS.readingUnderlineStyle) {
+      switch (draft.readingUnderlineStyle) {
         case CrossPointSettings::UNDERLINE_SOLID: return "N\u00e9t li\u1ec1n";
         case CrossPointSettings::UNDERLINE_DOTTED: return "N\u00e9t ch\u1ea5m";
         case CrossPointSettings::UNDERLINE_DASHED: return "N\u00e9t \u0111\u1ee9t";

@@ -241,11 +241,20 @@ void GalleryActivity::buildScreen(UiScreen& screen) {
       static_cast<int16_t>(metrics.contentSidePadding)});
 
   if (imageFiles.empty()) {
-    screen.centeredText(tr(STR_NO_IMAGES_FOUND), screen.theme().bodyText);
-    screen.spacer(8);
-    fui::TextStyle sub = screen.theme().smallText;
-    sub.align = fui::TextAlign::Center;
-    screen.centeredText(tr(STR_WALLPAPER_FOLDER), sub);
+    const int16_t bodyLh = screen.target().lineHeight(screen.theme().bodyText.font);
+    const int16_t smallLh = screen.target().lineHeight(screen.theme().smallText.font);
+    const int16_t totalH = static_cast<int16_t>(bodyLh + 16 + smallLh);
+    const int16_t topY = static_cast<int16_t>(screen.body().y + (screen.body().height - totalH) / 2);
+
+    fui::TextStyle titleStyle = screen.theme().bodyText;
+    titleStyle.align = fui::TextAlign::Center;
+    screen.target().text(fui::Rect{screen.body().x, topY, screen.body().width, bodyLh},
+                         tr(STR_NO_IMAGES_FOUND), titleStyle);
+
+    fui::TextStyle subStyle = screen.theme().smallText;
+    subStyle.align = fui::TextAlign::Center;
+    screen.target().text(fui::Rect{screen.body().x, static_cast<int16_t>(topY + bodyLh + 16), screen.body().width, smallLh},
+                         tr(STR_WALLPAPER_FOLDER), subStyle);
     return;
   }
 

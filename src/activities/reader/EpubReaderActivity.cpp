@@ -214,6 +214,7 @@ void moveFinishedBookToReadFolder(const std::string& srcPath, const std::string&
 }  // namespace
 
 EpubReaderActivity::~EpubReaderActivity() {
+  flushPendingProgressSave();
   commitCurrentReadingStats();
   ImageBlock::setExtractor(nullptr, nullptr);
   // ActivityManager destroys activities with its RenderLock already held;
@@ -732,6 +733,10 @@ void EpubReaderActivity::loop() {
     applyOrientation(SETTINGS.orientation);
     requestUpdate();
     return;
+  }
+
+  if (progressSavePending && (millis() - lastProgressChangeMs >= PROGRESS_SAVE_DEBOUNCE_MS)) {
+    flushPendingProgressSave();
   }
 
   constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
@@ -2001,11 +2006,8 @@ void EpubReaderActivity::renderBook() {
 
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
       section->pageCount != lastSavedPageCount) {
-    if (saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages())) {
-      lastSavedSpineIndex = currentSpineIndex;
-      lastSavedPage = section->currentPage;
-      lastSavedPageCount = section->estimatedTotalPages();
-    }
+    progressSavePending = true;
+    lastProgressChangeMs = millis();
   }
 
   showPendingSyncSaveError();
@@ -2142,8 +2144,19 @@ void EpubReaderActivity::commitCurrentReadingStats() {
 }
 
 void EpubReaderActivity::prepareForSleep() {
+  flushPendingProgressSave();
   commitCurrentReadingStats();
   ReaderActivity::prepareForSleep();
+}
+
+void EpubReaderActivity::flushPendingProgressSave() {
+  if (!progressSavePending || !section) return;
+  if (saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages())) {
+    lastSavedSpineIndex = currentSpineIndex;
+    lastSavedPage = section->currentPage;
+    lastSavedPageCount = section->estimatedTotalPages();
+    progressSavePending = false;
+  }
 }
 
 bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
@@ -2462,6 +2475,7 @@ void EpubReaderActivity::drawReadingUnderlines(const Page& page, const int fontI
   if (SETTINGS.readingUnderlineStyle == CrossPointSettings::UNDERLINE_OFF) return;
 
   const int bodyPitch = renderer.getLineHeight(fontId);
+  if (bodyPitch < 10) return;
   const int screenW = renderer.getScreenWidth();
   const int bottomLimit = renderer.getScreenHeight() - 32;
   const int leftX = 0;

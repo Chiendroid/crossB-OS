@@ -145,6 +145,10 @@ class EpubReaderActivity final : public ReaderActivity {
   int lastSavedSpineIndex = -1;
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
+  bool progressSavePending = false;
+  unsigned long lastProgressChangeMs = 0;
+  static constexpr unsigned long PROGRESS_SAVE_DEBOUNCE_MS = 1500;
+  void flushPendingProgressSave();
 
   static constexpr int BUILD_PAGES_PER_CHUNK = 8;
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 2;

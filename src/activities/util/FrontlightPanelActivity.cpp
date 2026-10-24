@@ -184,7 +184,6 @@ void FrontlightPanelActivity::runTile(const int idx) {
       SETTINGS.saveToFile();
       haptic_feedback::touchAction();
       app.clearTapFlash();
-      cleanRefreshPending = true;
       requestUpdate();
       break;
     case 3: {  // Thống kê đọc sách (Mở màn hình Thống kê chi tiết BookStatsActivity từ CrossInk)
