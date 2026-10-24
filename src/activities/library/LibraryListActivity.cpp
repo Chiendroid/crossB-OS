@@ -19,6 +19,7 @@
 #include "RecentBooksStore.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/BottomDockBar.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/icons/headerIcons.h"
@@ -31,13 +32,6 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr int SIDE_PADDING = 12;
-
-// Side clearance for the footer text in the panel's bottom corners.
-int bottomCornerClearance() {
-  const auto& board = BoardConfig::ACTIVE;
-  return board.bottomCornerRadius != 0 ? board.bottomCornerRadius : board.cornerRadius;
-}
-
 constexpr unsigned long LONG_PRESS_MS = 1000;
 
 constexpr int RECENT_TAB = 0;
@@ -81,6 +75,9 @@ LibraryListActivity::LibraryListActivity(GfxRenderer& renderer, MappedInputManag
 }
 
 void LibraryListActivity::onEnter() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
   // One lock across the base lifecycle AND the data phase: the base onEnter
   // schedules a paint, and the render task must not read the index or the
   // filter before they are in place. The rebuild also needs the lock: the
@@ -88,6 +85,10 @@ void LibraryListActivity::onEnter() {
   // needs the card to itself.
   RenderLock lock(*this);
   UiTabListActivity::onEnter();
+  dockCollapsed = BottomDockBar::isGlobalCollapsed();
+  if (!dockCollapsed) {
+    BottomDockBar::resetAutoHideTimer();
+  }
   app.on(ACTION_SEARCH, &LibraryListActivity::searchActionTrampoline, this);
   app.on(ACTION_REBUILD, &LibraryListActivity::rebuildActionTrampoline, this);
   app.on(ACTION_BACK, &LibraryListActivity::backActionTrampoline, this);
@@ -402,7 +403,7 @@ void LibraryListActivity::promptDeleteBookByPath(const std::string& path, const 
   // The dialog and the delete both want the card; reopen when we resume.
   index.close();
   auto confirmation =
-      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_ITEM_CONFIRM), title);
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("? "), title);
   if (!confirmation) {
     LOG_ERR("LIB", "OOM: delete confirmation");
     if (!index.open(library::libraryIndexPath())) LOG_ERR("LIB", "cannot reopen library index");
@@ -735,6 +736,12 @@ bool LibraryListActivity::rowTextFor(const int entry, std::string& title, std::s
 }
 
 bool LibraryListActivity::handleCustomInput() {
+  if (BottomDockBar::checkAutoHide(dockCollapsed)) {
+    resetUi();
+    requestUpdate();
+    return true;
+  }
+
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
 
   if (lockNextConfirmRelease && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -746,7 +753,22 @@ bool LibraryListActivity::handleCustomInput() {
     return true;
   }
 
+  bool needUpdate = false;
+  if (BottomDockBar::handleTouch(mappedInput, BottomDockBar::Tab::Library, dockCollapsed, needUpdate)) {
+    if (needUpdate) {
+      resetUi();
+      requestUpdate();
+    }
+    return true;
+  }
+
   return false;
+}
+
+void LibraryListActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
+  if (BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+    resetUi();
+  }
 }
 
 bool LibraryListActivity::handleButtons() {
@@ -958,7 +980,7 @@ void LibraryListActivity::buildHeader(UiScreen& screen) {
   // Same battery/clock band as every GUI.drawHeader screen; the header
   // heights are unified across themes, so the buttons derive from the band.
   GUI.applyHeaderStatus(renderer, header);
-  if (mappedInput.hasTouch()) {
+  if (mappedInput.hasTouch() && !query.empty()) {
     header.leadingIcon = fui::bitmapFromIcon(icon_header_back_32);
     header.leadingAction = ACTION_BACK;
   }
@@ -991,10 +1013,11 @@ void LibraryListActivity::buildScreen(UiScreen& screen) {
   const int16_t readoutReserved = static_cast<int16_t>(renderer.getLineHeight(SMALL_FONT_ID) + READOUT_GAP);
   const Rect area = UITheme::getContentArea(renderer);
   const auto bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - area.y - area.height);
+  const int16_t dockReserved = static_cast<int16_t>(BottomDockBar::getBottomReservedHeight(dockCollapsed));
   buildHeader(screen);
   screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                  static_cast<int16_t>(bottomInset + metrics.buttonHintsHeight + readoutReserved), 0});
+                  static_cast<int16_t>(bottomInset + dockReserved + readoutReserved), 0});
 
   if (!degraded) buildTabBar(screen);
   if (bookRowCount() == 0) {
@@ -1017,6 +1040,7 @@ void LibraryListActivity::buildScreen(UiScreen& screen) {
 // book position is stable by construction, and it answers the question the
 // reader actually has: how far in am I, and how much is left.
 void LibraryListActivity::drawPositionReadout() const {
+  if (mappedInput.hasTouch()) return;
   const int count = listCount();
   if (count <= 0) return;
 
@@ -1027,7 +1051,7 @@ void LibraryListActivity::drawPositionReadout() const {
   const int width = renderer.getTextWidth(SMALL_FONT_ID, buf);
   // Bottom-right of the viewable area, clear of the bezel and rounded corner.
   const Rect area = UITheme::getContentArea(renderer);
-  const int right = std::max(renderer.getScreenWidth() - area.x - area.width, bottomCornerClearance());
+  const int right = std::max(renderer.getScreenWidth() - area.x - area.width, int{BoardConfig::ACTIVE.cornerRadius});
   const int x = renderer.getScreenWidth() - right - width - SIDE_PADDING;
   const int y = area.y + area.height - metrics.buttonHintsHeight - renderer.getLineHeight(SMALL_FONT_ID);
   renderer.drawText(SMALL_FONT_ID, x, y, buf, true);
@@ -1054,7 +1078,7 @@ void LibraryListActivity::drawHoldHelp() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const Rect area = UITheme::getContentArea(renderer);
-  const int left = std::max(area.x, bottomCornerClearance());
+  const int left = std::max(area.x, int{BoardConfig::ACTIVE.cornerRadius});
   const int y = area.y + area.height - metrics.buttonHintsHeight - lineHeight;
   GUI.drawHelpText(renderer,
                    Rect{left + SIDE_PADDING, y, renderer.getScreenWidth() / 2 - left - SIDE_PADDING, lineHeight}, help);
@@ -1070,12 +1094,5 @@ void LibraryListActivity::render(RenderLock&& lock) {
 void LibraryListActivity::drawFooter() {
   drawPositionReadout();
   drawHoldHelp();
-
-  const bool backGoesHome = tabsFocused() && !groupsCollapsed && query.empty();
-  const char* backLabel = backGoesHome ? tr(STR_HOME) : tr(STR_BACK);
-  const char* confirmLabel = groupsCollapsed ? tr(STR_SELECT) : tr(STR_OPEN);
-  const bool canSearch = tabsFocused() && !degraded;
-  const auto labels = mappedInput.mapLabels(backLabel, tabsFocused() ? tr(STR_TOGGLE) : confirmLabel,
-                                            canSearch ? tr(STR_SEARCH) : tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  BottomDockBar::render(renderer, BottomDockBar::Tab::Library, dockCollapsed);
 }

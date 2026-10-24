@@ -5,8 +5,8 @@
 class GfxRenderer;
 
 namespace RoundedRaffMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 15,
-                                 .batteryHeight = 12,
+constexpr ThemeMetrics values = {.batteryWidth = 40,
+                                 .batteryHeight = 16,
                                  // Fit the 23px SMALL_FONT_ID line box and lift it one pixel while
                                  // keeping the 12px battery glyph at y=19, aligned with Lyra.
                                  .topPadding = 13,

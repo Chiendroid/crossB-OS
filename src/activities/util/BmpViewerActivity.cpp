@@ -14,6 +14,7 @@
 
 #include "CrossPointSettings.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -36,16 +37,11 @@ RenderConfig fitImage(const ImageDimensions& dimensions, const GfxRenderer& rend
   config.useExactDimensions = true;
   return config;
 }
-
-bool overlaySleepMode() {
-  const uint8_t mode = SETTINGS.sleepScreen;
-  return mode == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM ||
-         mode == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_TRANSPARENT;
-}
 }  // namespace
 
-BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path)
-    : Activity("BmpViewer", renderer, mappedInput), filePath(std::move(path)) {}
+BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path,
+                                     bool returnToCaller)
+    : Activity("BmpViewer", renderer, mappedInput), filePath(std::move(path)), returnToCaller(returnToCaller) {}
 
 void BmpViewerActivity::loadSiblingImages() {
   siblingImages.clear();
@@ -99,9 +95,12 @@ void BmpViewerActivity::loadSiblingImages() {
   }
 }
 
+bool BmpViewerActivity::canSetSleepCover(const std::string& path) {
+  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
+}
+
 bool BmpViewerActivity::canSetSleepCover() const {
-  return FsHelpers::hasBmpExtension(filePath) || FsHelpers::hasJpgExtension(filePath) ||
-         (overlaySleepMode() && FsHelpers::hasPngExtension(filePath));
+  return canSetSleepCover(filePath);
 }
 
 bool BmpViewerActivity::renderImage() {
@@ -122,7 +121,11 @@ bool BmpViewerActivity::renderImage() {
                                             hasPrevious ? "<" : "", hasNext ? ">" : "");
   const auto drawImage = [&]() {
     if (!decoder.decodeToFramebuffer(filePath, renderer, config)) return false;
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    if (!mappedInput.hasTouch()) {
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    } else if (controlsVisible) {
+      drawSquircleButtons();
+    }
     return true;
   };
 
@@ -161,6 +164,7 @@ bool BmpViewerActivity::renderImage() {
 
 void BmpViewerActivity::onEnter() {
   Activity::onEnter();
+  controlsShownMillis = millis();
 
   if (siblingImages.empty() && !filePath.empty()) {
     loadSiblingImages();
@@ -231,7 +235,11 @@ void BmpViewerActivity::onEnter() {
       }
 
       // Draw UI hints on the base layer
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      if (!mappedInput.hasTouch()) {
+        GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      } else if (controlsVisible) {
+        drawSquircleButtons();
+      }
       if (bitmap.hasGreyscale()) {
         const bool absolute = renderer.grayscaleCapabilities(HalDisplay::GrayscaleMode::Absolute).supported();
         if (absolute && !renderer.displayGrayscaleBase(HalDisplay::GrayscaleMode::Absolute)) return;
@@ -249,7 +257,11 @@ void BmpViewerActivity::onEnter() {
             planesReady = false;
             break;
           }
-          GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+          if (!mappedInput.hasTouch()) {
+            GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+          } else if (controlsVisible) {
+            drawSquircleButtons();
+          }
           if (mode == GfxRenderer::GRAYSCALE_LSB) {
             renderer.copyGrayscaleLsbBuffers();
           } else {
@@ -267,7 +279,11 @@ void BmpViewerActivity::onEnter() {
           renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_FILE_OPEN_FAILED));
           planesReady = false;
         }
-        GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+        if (!mappedInput.hasTouch()) {
+          GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+        } else if (controlsVisible) {
+          drawSquircleButtons();
+        }
         renderer.cleanupGrayscaleWithFrameBuffer();
         if (!planesReady) renderer.displayBuffer(HalDisplay::HALF_REFRESH);
       } else {
@@ -300,7 +316,7 @@ void BmpViewerActivity::onExit() {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
-bool BmpViewerActivity::saveJpegSleepCover() {
+bool BmpViewerActivity::saveImageSleepCover(GfxRenderer& renderer, const std::string& path) {
   if (Storage.exists(JPEG_SLEEP_TMP_PXC) && !Storage.remove(JPEG_SLEEP_TMP_PXC)) {
     LOG_ERR("BMP", "Failed to remove previous sleep image pixels");
     return false;
@@ -311,9 +327,14 @@ bool BmpViewerActivity::saveJpegSleepCover() {
     if (!keepBmpTemp) Storage.remove(CUSTOM_SLEEP_TMP_BMP);
   }};
 
-  JpegToFramebufferConverter decoder;
+  const bool isPng = FsHelpers::hasPngExtension(path);
+  JpegToFramebufferConverter jpegDecoder;
+  PngToFramebufferConverter pngDecoder;
+  ImageToFramebufferDecoder& decoder =
+      isPng ? static_cast<ImageToFramebufferDecoder&>(pngDecoder) : static_cast<ImageToFramebufferDecoder&>(jpegDecoder);
+
   ImageDimensions dimensions;
-  if (!decoder.getDimensions(filePath, dimensions)) return false;
+  if (!decoder.getDimensions(path, dimensions)) return false;
   auto config = fitImage(dimensions, renderer);
   if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP &&
       (dimensions.width > renderer.getScreenWidth() || dimensions.height > renderer.getScreenHeight())) {
@@ -330,10 +351,17 @@ bool BmpViewerActivity::saveJpegSleepCover() {
   }
   config.cachePath = JPEG_SLEEP_TMP_PXC;
   renderer.clearScreen();
-  bool cacheWritten;
-  if (!decoder.decodeToFramebuffer(filePath, renderer, config, cacheWritten) || !cacheWritten) {
-    LOG_ERR("BMP", "Failed to decode sleep image pixels");
-    return false;
+  bool cacheWritten = false;
+  if (isPng) {
+    if (!pngDecoder.decodeToFramebuffer(path, renderer, config)) {
+      LOG_ERR("BMP", "Failed to decode PNG sleep image");
+      return false;
+    }
+  } else {
+    if (!jpegDecoder.decodeToFramebuffer(path, renderer, config, cacheWritten) || !cacheWritten) {
+      LOG_ERR("BMP", "Failed to decode JPEG sleep image");
+      return false;
+    }
   }
 
   HalFile input, output;
@@ -379,7 +407,6 @@ bool BmpViewerActivity::saveJpegSleepCover() {
     return false;
   }
   if (!Storage.replaceFile(CUSTOM_SLEEP_TMP_BMP, CUSTOM_SLEEP_ROOT_BMP)) {
-    // ponytail: FAT replacement is not atomic; keep the complete temp for recovery.
     keepBmpTemp = true;
     LOG_ERR("BMP", "Failed to publish sleep image");
     return false;
@@ -387,49 +414,55 @@ bool BmpViewerActivity::saveJpegSleepCover() {
   return true;
 }
 
-void BmpViewerActivity::doSetSleepCover() {
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+bool BmpViewerActivity::saveJpegSleepCover() {
+  return saveImageSleepCover(renderer, filePath);
+}
 
-  const bool jpeg = FsHelpers::hasJpgExtension(filePath);
-  const bool transparentMode = !jpeg && overlaySleepMode();
-  if (!canSetSleepCover()) return;
+bool BmpViewerActivity::setSleepCoverFromFile(GfxRenderer& renderer, const std::string& path) {
+  if (!canSetSleepCover(path)) return false;
 
-  const char* destination =
-      transparentMode ? (FsHelpers::hasPngExtension(filePath) ? TRANSPARENT_SLEEP_ROOT_PNG : TRANSPARENT_SLEEP_ROOT_BMP)
-                      : CUSTOM_SLEEP_ROOT_BMP;
-  bool success = filePath == destination;
+  const bool isImage = FsHelpers::hasJpgExtension(path) || FsHelpers::hasPngExtension(path);
+  bool success = false;
 
-  if (jpeg) {
-    success = saveJpegSleepCover();
-  } else if (!success) {
-    auto buffer = makeUniqueNoThrow<uint8_t[]>(COPY_BUFFER_SIZE);
-    if (!buffer) {
-      LOG_ERR("BMP", "OOM: sleep cover copy buffer");
+  if (isImage) {
+    success = saveImageSleepCover(renderer, path);
+  } else if (FsHelpers::hasBmpExtension(path)) {
+    if (path == CUSTOM_SLEEP_ROOT_BMP) {
+      success = true;
     } else {
-      // Copy beside the target and swap in only a complete image, so a failed
-      // copy keeps the previous sleep cover instead of a truncated one.
-      const std::string tmp = std::string(destination) + ".tmp";
-      HalFile inFile, outFile;
-      if (Storage.openFileForRead("BMP", filePath, inFile) && Storage.openFileForWrite("BMP", tmp, outFile)) {
-        int bytesRead;
-        success = true;
-        while ((bytesRead = inFile.read(buffer.get(), COPY_BUFFER_SIZE)) > 0) {
-          if (outFile.write(buffer.get(), static_cast<size_t>(bytesRead)) != static_cast<size_t>(bytesRead)) {
-            success = false;
-            break;
+      auto buffer = makeUniqueNoThrow<uint8_t[]>(COPY_BUFFER_SIZE);
+      if (buffer) {
+        const std::string tmp = std::string(CUSTOM_SLEEP_ROOT_BMP) + ".tmp";
+        HalFile inFile, outFile;
+        if (Storage.openFileForRead("BMP", path, inFile) && Storage.openFileForWrite("BMP", tmp, outFile)) {
+          int bytesRead;
+          success = true;
+          while ((bytesRead = inFile.read(buffer.get(), COPY_BUFFER_SIZE)) > 0) {
+            if (outFile.write(buffer.get(), static_cast<size_t>(bytesRead)) != static_cast<size_t>(bytesRead)) {
+              success = false;
+              break;
+            }
           }
+          if (bytesRead < 0) success = false;
+          outFile.close();
+          success = success && Storage.replaceFile(tmp.c_str(), CUSTOM_SLEEP_ROOT_BMP);
+          if (!success) Storage.remove(tmp.c_str());
         }
-        if (bytesRead < 0) success = false;
-        outFile.close();
-        success = success && Storage.replaceFile(tmp.c_str(), destination);
-        if (!success) Storage.remove(tmp.c_str());
       }
     }
   }
 
   if (success) {
-    if (!transparentMode) SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
+    SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
     SETTINGS.saveToFile();
+  }
+  return success;
+}
+
+void BmpViewerActivity::doSetSleepCover() {
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  const bool success = setSleepCoverFromFile(renderer, filePath);
+  if (success) {
     GUI.drawPopup(renderer, tr(STR_DONE));
   } else {
     GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
@@ -439,17 +472,100 @@ void BmpViewerActivity::doSetSleepCover() {
   onEnter();
 }
 
+void BmpViewerActivity::drawSquircleButtons() {
+  if (!mappedInput.hasTouch() || !controlsVisible) return;
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+
+  const int btnSize = 56;
+  const int btnRadius = 16;
+  const int marginX = 24;
+  const int marginY = 24;
+
+  const int leftX = marginX;
+  const int leftY = pageHeight - marginY - btnSize;
+
+  const int rightX = pageWidth - marginX - btnSize;
+  const int rightY = leftY;
+
+  // Sử dụng hàm chuẩn hóa OS của TouchHeaderBackButton
+  TouchHeaderBackButton::drawSquircleBackButton(renderer, leftX, leftY, btnSize, btnRadius);
+  TouchHeaderBackButton::drawSquircleMenuButton(renderer, rightX, rightY, btnSize, btnRadius);
+}
+
+void BmpViewerActivity::openViewerMenu() {
+  std::string opt1 = tr(STR_SET_SLEEP_COVER);
+  std::string opt2 = slideshowActive ? "Dừng trình chiếu" : "Trình chiếu ảnh (5 phút / ảnh)";
+  std::string opt3 = "Xóa ảnh này";
+  const char* const options[] = {opt1.c_str(), opt2.c_str(), opt3.c_str()};
+
+  menuPopup.show("Tùy chọn", options, 3, 0, [this](int selected) {
+    if (selected == 0) {
+      doSetSleepCover();
+    } else if (selected == 1) {
+      slideshowActive = !slideshowActive;
+      if (slideshowActive) {
+        lastSlideshowAdvanceMillis = millis();
+        controlsVisible = false;
+        GUI.drawPopup(renderer, "Bắt đầu trình chiếu (5 phút)");
+        delay(1200);
+        onEnter();
+      } else {
+        GUI.drawPopup(renderer, "Đã dừng trình chiếu");
+        delay(1200);
+        onEnter();
+      }
+    } else if (selected == 2) {
+      auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
+          renderer, mappedInput, "Xóa ảnh này?",
+          filePath.substr(filePath.find_last_of('/') + 1));
+      if (confirmation) {
+        startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            Storage.remove(filePath.c_str());
+            loadSiblingImages();
+            if (siblingImages.empty()) {
+              activityManager.goToFileBrowser(FsHelpers::extractFolderPath(filePath));
+            } else {
+              if (currentImageIndex >= static_cast<int>(siblingImages.size())) {
+                currentImageIndex = 0;
+              }
+              std::string dirPath = FsHelpers::extractFolderPath(filePath);
+              if (dirPath.back() != '/') dirPath += "/";
+              filePath = dirPath + siblingImages[currentImageIndex];
+              onEnter();
+            }
+          } else {
+            onEnter();
+          }
+        });
+      }
+    }
+  });
+
+  menuPopup.processRender(renderer, mappedInput);
+}
+
 void BmpViewerActivity::loop() {
   // Keep CPU awake/polling so 1st click works
   Activity::loop();
 
   auto openSibling = [this](const int delta) {
-    if (currentImageIndex < 0) {
+    if (currentImageIndex < 0 || siblingImages.empty()) {
       return false;
     }
-    const int nextIndex = currentImageIndex + delta;
-    if (siblingImages.size() <= 1 || nextIndex < 0 || nextIndex >= static_cast<int>(siblingImages.size())) {
-      return false;
+    int nextIndex = currentImageIndex + delta;
+    if (slideshowActive) {
+      if (nextIndex >= static_cast<int>(siblingImages.size())) {
+        nextIndex = 0;
+      } else if (nextIndex < 0) {
+        nextIndex = static_cast<int>(siblingImages.size()) - 1;
+      }
+    } else {
+      if (siblingImages.size() <= 1 || nextIndex < 0 || nextIndex >= static_cast<int>(siblingImages.size())) {
+        return false;
+      }
     }
     currentImageIndex = nextIndex;
     std::string dirPath = FsHelpers::extractFolderPath(filePath);
@@ -459,7 +575,41 @@ void BmpViewerActivity::loop() {
     return true;
   };
 
+  if (menuPopup.isActive()) {
+    if (menuPopup.handleInput(mappedInput, [this] {
+          if (menuPopup.isActive()) {
+            menuPopup.processRender(renderer, mappedInput);
+          } else {
+            onEnter();
+          }
+        })) {
+      return;
+    }
+  }
+
+  // Slideshow advance (every 5 minutes = 300,000 ms)
+  if (slideshowActive && !menuPopup.isActive()) {
+    if (millis() - lastSlideshowAdvanceMillis >= 5 * 60 * 1000UL) {
+      lastSlideshowAdvanceMillis = millis();
+      openSibling(1);
+      return;
+    }
+  }
+
+  // Auto-hide controls after 5 seconds of inactivity
+  if (controlsVisible && !menuPopup.isActive() && !slideshowActive) {
+    if (millis() - controlsShownMillis > 5000UL) {
+      controlsVisible = false;
+      onEnter();
+      return;
+    }
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (returnToCaller) {
+      finish();
+      return;
+    }
     activityManager.goToFileBrowser(filePath);
     return;
   }
@@ -474,22 +624,55 @@ void BmpViewerActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (!canSetSleepCover()) return;
+  // Touch handling
+  if (mappedInput.hasTouch() && !menuPopup.isActive()) {
+    int tapX = 0, tapY = 0;
+    if (mappedInput.wasScreenTapped(tapX, tapY)) {
+      const int pageWidth = renderer.getScreenWidth();
+      const int pageHeight = renderer.getScreenHeight();
 
-    auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER_CONFIRM),
-                                                                filePath.substr(filePath.find_last_of('/') + 1));
-    if (!confirmation) {
-      LOG_ERR("BMP", "OOM: sleep cover confirmation (%zu bytes)", sizeof(ConfirmationActivity));
-      return;
-    }
-    startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
-      if (result.isCancelled) {
-        onEnter();
+      if (controlsVisible) {
+        // Back Button touch zone (góc dưới bên trái)
+        if (tapX >= 0 && tapX <= 110 && tapY >= pageHeight - 120 && tapY <= pageHeight) {
+          if (returnToCaller) {
+            finish();
+            return;
+          }
+          activityManager.goToFileBrowser(filePath);
+          return;
+        }
+
+        // Menu Button touch zone (góc dưới bên phải)
+        if (tapX >= pageWidth - 110 && tapX <= pageWidth && tapY >= pageHeight - 120 && tapY <= pageHeight) {
+          openViewerMenu();
+          return;
+        }
+      }
+
+      // GESTURE CHẠM 2 CẠNH BÊN ĐỂ CHUYỂN ẢNH TRÁI / PHẢI:
+      // Chạm cạnh bên trái (< 28% chiều rộng): Lùi về ảnh trước
+      if (tapX < pageWidth * 0.28) {
+        openSibling(-1);
         return;
       }
-      doSetSleepCover();
-    });
+      // Chạm cạnh bên phải (> 72% chiều rộng): Tiến sang ảnh tiếp theo
+      if (tapX > pageWidth * 0.72) {
+        openSibling(1);
+        return;
+      }
+
+      // Chạm vùng giữa (28% - 72%): Bật / tắt thanh điều khiển (controls)
+      controlsVisible = !controlsVisible;
+      if (controlsVisible) {
+        controlsShownMillis = millis();
+      }
+      onEnter();
+      return;
+    }
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    openViewerMenu();
     return;
   }
 
@@ -505,3 +688,4 @@ void BmpViewerActivity::loop() {
     return;
   }
 }
+

@@ -154,10 +154,10 @@ enum UIIcon {
 // Additional themes can inherit from this and override methods as needed
 
 namespace BaseMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 15,
-                                 .batteryHeight = 12,
+constexpr ThemeMetrics values = {.batteryWidth = 40,
+                                 .batteryHeight = 16,
                                  .topPadding = 5,
-                                 .batteryBarHeight = 20,
+                                 .batteryBarHeight = 24,
                                  .headerHeight = 84,
                                  .verticalSpacing = 10,
                                  .previewPadding = 12,
@@ -234,6 +234,7 @@ class BaseTheme {
   virtual ~BaseTheme() = default;
 
   // Component drawing methods
+  static freeink::ui::BitmapRef checkboxIcon(bool checked);
   static void setCheckboxRow(freeink::ui::ListItem& item, bool checked);
   static void drawCoverPlaceholder(const GfxRenderer& renderer, Rect rect);
   // Draws a pre-dithered cover thumb 1:1, centered and clipped to fill the
@@ -287,7 +288,7 @@ class BaseTheme {
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
   static void drawSelectionHandle(const GfxRenderer& renderer, Rect rect, bool left);
-  static void drawSelectionActions(const GfxRenderer& renderer, Rect rect, int count = 3);
+  static void drawSelectionActions(const GfxRenderer& renderer, Rect rect);
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   static void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,

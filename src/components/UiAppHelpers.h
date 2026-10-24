@@ -61,6 +61,13 @@ inline void applySharedUiTheme(App& app, const freeink::ui::GfxRendererTarget& t
   app.setThemeRef(&sharedUiThemeCell());
 }
 
+template <size_t MaxInteractions, size_t MaxHandlers>
+inline void renderUiApp(freeink::ui::FreeInkApp<MaxInteractions, MaxHandlers>& app,
+                        const freeink::ui::GfxRendererTarget& target) {
+  app.setDevice(target.deviceContext());
+  app.render();
+}
+
 // Bind the uiScale fonts before FreeInkApp's constructor derives its theme
 // metrics from the body font's line height.
 inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) {
@@ -107,6 +114,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
         return freeink::ui::bitmapFromIcon(icon_usb_32);
       case UIIcon::Bookmark:
         return freeink::ui::bitmapFromIcon(icon_bookmark_32);
+      case UIIcon::Transfer:
+        return freeink::ui::bitmapFromIcon(icon_download_32);
       case UIIcon::Blocks:
         return freeink::ui::bitmapFromIcon(icon_blocks_32);
       default:
@@ -136,6 +145,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       return freeink::ui::bitmapFromIcon(icon_usb_24);
     case UIIcon::Bookmark:
       return freeink::ui::bitmapFromIcon(icon_bookmark_24);
+    case UIIcon::Transfer:
+      return freeink::ui::bitmapFromIcon(icon_download_24);
     case UIIcon::Blocks:
       return freeink::ui::bitmapFromIcon(icon_blocks_24);
     default:
@@ -215,4 +226,19 @@ inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& ma
     snap.touchY = -1;
   }
   return snap;
+}
+
+inline int scrollListBy(const int topIndex, const int delta, const int visibleRows, const int count) {
+  int maxTop = count - visibleRows;
+  if (maxTop < 0) maxTop = 0;
+  int next = topIndex + delta;
+  if (next > maxTop) next = maxTop;
+  if (next < 0) next = 0;
+  return next;
+}
+
+inline int followListSelection(const int selectedIndex, const int topIndex, const int visibleRows, const int count) {
+  return static_cast<int>(freeink::ui::listTopIndexFor(
+      static_cast<int16_t>(selectedIndex), static_cast<uint16_t>(topIndex),
+      static_cast<uint16_t>(visibleRows > 0 ? visibleRows : 1), static_cast<uint16_t>(count)));
 }

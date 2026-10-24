@@ -71,7 +71,7 @@ class CatalogActivity : public UiListActivity {
                                              const std::vector<HttpDownloader::Header>& headers = {},
                                              const std::string* postBody = nullptr,
                                              const char* postContentType = nullptr);
-  void screenHeader(UiScreen& screen, const char* title);
+  void screenHeader(UiScreen& screen, const char* title, bool backButton = true);
   bool buildStatusScreen(UiScreen& screen, bool boldError = true, bool showDownloadTotal = false);
 
  private:

@@ -18,6 +18,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
+#include "components/HeaderBackTapTarget.h"
 #include "util/PluginEvents.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -74,6 +75,7 @@ void ReaderActivity::onEnter() {
   }
 
   sdFontSystem.ensureLoaded(renderer);
+  renderer.clearScreen(0xFF);
   applyInitialOrientation();
 
   if (!loadBook()) {
@@ -116,6 +118,9 @@ void ReaderActivity::onExit() {
   }
 
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
+  HeaderBackTapTarget::clear();
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
 

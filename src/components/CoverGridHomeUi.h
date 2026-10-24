@@ -28,8 +28,11 @@ class CoverGridHomeUi final : public UiAppHost {
   // image aliases badly.
   int thumbHeightFor() const;
   bool takeThumbHeightChanged();
+  void setDockCollapsed(bool collapsed) { dockCollapsed = collapsed; }
+  bool isDockCollapsed() const { return dockCollapsed; }
 
  private:
+  bool dockCollapsed = false;
   static void screenFn(UiScreen& screen, void* user);
   static void onAction(const freeink::ui::ActionEvent& event, void* user);
   void draw(UiScreen& screen);
@@ -38,7 +41,7 @@ class CoverGridHomeUi final : public UiAppHost {
   void drawCurrent(UiScreen& screen, freeink::ui::Rect rect, int coverRowHeight);
   void drawGrid(UiScreen& screen);
   freeink::ui::Rect layoutGrid(freeink::ui::Rect rect);
-  void drawTabs(UiScreen& screen, freeink::ui::Rect rect);
+  void drawTabs(UiScreen& screen);
   bool paintFramedCover(freeink::ui::DrawTarget& target, freeink::ui::Rect rect, size_t index);
   void refreshCoverPath(size_t index);
   void noteThumbHeight(int slotHeight);
@@ -60,5 +63,5 @@ class CoverGridHomeUi final : public UiAppHost {
   freeink::ui::CoverGridProps grid;
   freeink::ui::Rect gridBounds{};
   freeink::ui::TabBarProps tabs;
-  std::array<freeink::ui::TabItem, 5> tabItems;
+  std::array<freeink::ui::TabItem, 4> tabItems;
 };

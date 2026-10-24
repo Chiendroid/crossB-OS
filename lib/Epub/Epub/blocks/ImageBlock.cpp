@@ -29,6 +29,8 @@ void ImageBlock::setExtractor(void* ctx, ExtractFn fn) {
   extractFn = fn;
 }
 
+bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str()); }
+
 namespace {
 
 std::string getCachePath(const std::string& imagePath) {

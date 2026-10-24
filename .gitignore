@@ -33,3 +33,7 @@ lib/EpdFont/scripts/output/
 sdkconfig.sticky
 sdkconfig.x4pro
 flake.*
+qa-artifacts/
+fs_test/
+firmware_backups/
+firmware_export/

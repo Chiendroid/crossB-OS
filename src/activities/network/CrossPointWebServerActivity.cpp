@@ -184,6 +184,11 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     return;
   }
 
+  if (mode == NetworkMode::NEARBY_BOOK_RECEIVE) {
+    activityManager.goToNearbyBookReceive();
+    return;
+  }
+
   if (mode == NetworkMode::JOIN_NETWORK) {
     // STA mode - launch WiFi selection
     LOG_DBG("WEBACT", "Turning on WiFi (STA mode)...");

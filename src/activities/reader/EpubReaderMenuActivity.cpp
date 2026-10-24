@@ -9,7 +9,6 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
-#include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
 
@@ -57,7 +56,7 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
     items.push_back({MenuAction::VIEW_CLIPPINGS, StrId::STR_VIEW_CLIPPINGS});
   }
   items.push_back({MenuAction::NIGHT_MODE, StrId::STR_NIGHT_MODE});
-  if (Frontlight.present() && !slideSwitchOwnsLight()) {
+  if (Frontlight.present()) {
     items.push_back({MenuAction::FRONTLIGHT, StrId::STR_FRONTLIGHT});
   }
   if (bleturner::status().compiledIn) {
@@ -229,9 +228,13 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
 }
 
 void EpubReaderMenuActivity::drawChrome() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
-  GUI.drawHeader(renderer, UITheme::getInstance().getHeaderRect(renderer, true, false), title.c_str());
+  GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
+                 title.c_str());
 }
 
 void EpubReaderMenuActivity::render(RenderLock&&) {

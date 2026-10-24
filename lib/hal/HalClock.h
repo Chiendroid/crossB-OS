@@ -38,6 +38,19 @@ class HalClock {
   // Returns false if RTC is not available.
   bool getTime(uint8_t& hour, uint8_t& minute) const;
 
+  // Get current local date and time.
+  // Returns false if RTC is not available.
+  bool getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const {
+    struct tm timeStruct{};
+    if (!localTime(timeStruct)) return false;
+    year = static_cast<uint16_t>(timeStruct.tm_year + 1900);
+    month = static_cast<uint8_t>(timeStruct.tm_mon + 1);
+    day = static_cast<uint8_t>(timeStruct.tm_mday);
+    hour = static_cast<uint8_t>(timeStruct.tm_hour);
+    minute = static_cast<uint8_t>(timeStruct.tm_min);
+    return true;
+  }
+
   // Format the local time into a caller-provided buffer.
   // 24h mode produces "HH:MM" (needs >=6 bytes); 12h mode produces "H:MM AM"/"HH:MM PM" (needs >=9 bytes).
   // Returns false if RTC is not available.

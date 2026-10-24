@@ -6,8 +6,8 @@ class GfxRenderer;
 
 // Lyra theme metrics (zero runtime cost)
 namespace LyraMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 16,
-                                 .batteryHeight = 12,
+constexpr ThemeMetrics values = {.batteryWidth = 40,
+                                 .batteryHeight = 16,
                                  // Shared anchor for every header band, including the cover-grid
                                  // home's status band; roomy enough that the strip clears the edge.
                                  .topPadding = 10,

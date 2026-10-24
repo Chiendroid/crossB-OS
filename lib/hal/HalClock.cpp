@@ -53,25 +53,25 @@ bool HalClock::localTime(struct tm& out) const {
 }
 
 bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
-  struct tm local;
-  if (!localTime(local)) return false;
-  hour = static_cast<uint8_t>(local.tm_hour);
-  minute = static_cast<uint8_t>(local.tm_min);
+  struct tm timeStruct{};
+  if (!localTime(timeStruct)) return false;
+  hour = static_cast<uint8_t>(timeStruct.tm_hour);
+  minute = static_cast<uint8_t>(timeStruct.tm_min);
   return true;
 }
 
 bool HalClock::formatTime(char* buf, size_t bufSize, bool use12Hour) const {
   if (bufSize < (use12Hour ? 9u : 6u)) return false;
-  struct tm local;
-  if (!localTime(local)) return false;
+  struct tm timeStruct{};
+  if (!localTime(timeStruct)) return false;
 
   if (use12Hour) {
-    const bool pm = local.tm_hour >= 12;
-    int hour12 = local.tm_hour % 12;
+    const bool pm = timeStruct.tm_hour >= 12;
+    int hour12 = timeStruct.tm_hour % 12;
     if (hour12 == 0) hour12 = 12;
-    snprintf(buf, bufSize, "%d:%02d %s", hour12, local.tm_min, pm ? "PM" : "AM");
+    snprintf(buf, bufSize, "%d:%02d %s", hour12, timeStruct.tm_min, pm ? "PM" : "AM");
   } else {
-    snprintf(buf, bufSize, "%02d:%02d", local.tm_hour, local.tm_min);
+    snprintf(buf, bufSize, "%02d:%02d", timeStruct.tm_hour, timeStruct.tm_min);
   }
   return true;
 }

@@ -26,8 +26,6 @@
 #include "components/UiAppHelpers.h"  // list icons for the compare rows
 #include "fontIds.h"
 #include "network/WifiPowerSaveGuard.h"
-#include "util/PluginEvents.h"
-#include "util/PluginHttp.h"
 
 namespace fui = freeink::ui;
 
@@ -54,8 +52,7 @@ const char* matchMethodName(const DocumentMatchMethod method) {
 
 KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& epubPath, CrossPointPosition localPosition,
-                                           SavedProgressPosition localKoPos, std::string localChapterName,
-                                           const bool pluginEventsOnly)
+                                           SavedProgressPosition localKoPos, std::string localChapterName)
     : Activity("KOReaderSync", renderer, mappedInput),
       UiAppHost(renderer),
       epubPath(epubPath),
@@ -63,8 +60,7 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       localPosition(localPosition),
       remoteProgress{},
       remotePosition{},
-      localProgress(std::move(localKoPos)),
-      pluginEventsOnly(pluginEventsOnly) {}
+      localProgress(std::move(localKoPos)) {}
 
 void KOReaderSyncActivity::ensureEpubLoaded() {
   if (!epub) {
@@ -133,19 +129,6 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   WiFi.setSleep(false);
   LOG_DBG("KOSync", "WiFi sleep disabled for sync");
 
-  if (pluginEventsOnly) {
-    {
-      RenderLock lock(*this);
-      state = SYNCING;
-      statusMessage = tr(STR_SYNC_PROGRESS);
-    }
-    requestUpdate(true);
-
-    pluginevents::drain(&renderer);
-    completeAlreadySynced();
-    return;
-  }
-
   {
     RenderLock lock(*this);
     state = SYNCING;
@@ -180,15 +163,7 @@ void KOReaderSyncActivity::performSync() {
       statusMessage = tr(STR_SYNCING_CLIPPINGS);
     }
     requestUpdateAndWait();
-    bool clippingsSynced;
-    {
-#if defined(CONFIG_IDF_TARGET_ESP32C3) && CONFIG_IDF_TARGET_ESP32C3
-      RenderLock lock;
-      GfxRenderer::FrameBufferLoan loan(renderer);
-#endif
-      clippingsSynced = clippingSync::run(epubPath, documentHash);
-    }
-    if (!clippingsSynced) {
+    if (!clippingSync::run(epubPath, documentHash)) {
       {
         RenderLock lock(*this);
         state = SYNC_FAILED;
@@ -452,8 +427,8 @@ void KOReaderSyncActivity::onEnter() {
   app.on(ACTION_ROW, &KOReaderSyncActivity::onResultRow, this);
   app.setScreen(&KOReaderSyncActivity::resultScreen, this);
 
-  // Check for credentials first (plugin-events-only mode needs none).
-  if (!pluginEventsOnly && !KOREADER_STORE.hasCredentials()) {
+  // Check for credentials first
+  if (!KOREADER_STORE.hasCredentials()) {
     state = NO_CREDENTIALS;
     requestUpdate();
     return;
@@ -664,9 +639,10 @@ void KOReaderSyncActivity::buildResultScreen(UiScreen& screen) {
 void KOReaderSyncActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
+  auto metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
-  GUI.drawHeader(renderer, UITheme::getInstance().getHeaderRect(renderer, true, false),
+  GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  state == SHOWING_RESULT ? tr(STR_PROGRESS_FOUND) : tr(STR_KOREADER_SYNC));
 
   int top = screen.y + screen.height / 2 - 40;

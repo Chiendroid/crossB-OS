@@ -21,13 +21,22 @@
 #include <limits>
 #include <string>
 
+#include <HalClock.h>
+#include <HalPowerManager.h>
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "RecentBooksStore.h"
+#include "activities/reader/BookReadingStats.h"
+#include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReaderUtils.h"
+#include "activities/reader/ReadingStatsUtils.h"
 #include "components/UITheme.h"
+#include "components/icons/listIcons.h"
 #include "fontIds.h"
+#include "util/LunarCalendar.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "util/BookProgress.h"
 
 namespace {
 // Metalio: B/W sleep images use the full 0xF7 waveform instead of HALF (two
@@ -54,7 +63,7 @@ HalDisplay::GrayscaleMode sleepGrayscaleMode(const GfxRenderer& renderer) {
              : HalDisplay::GrayscaleMode::Absolute;
 }
 
-// Kept separate from normal custom sleep sources so alpha-overlay art does not mix with full-screen wallpapers.
+// Kept separate from /sleep.bmp and /.sleep so alpha-overlay art does not mix with full-screen wallpapers.
 constexpr char TRANSPARENT_SLEEP_ROOT_BMP[] = "/sleep-overlay.bmp";
 constexpr char TRANSPARENT_SLEEP_ROOT_PNG[] = "/sleep-overlay.png";
 constexpr char TRANSPARENT_SLEEP_DIR[] = "/.sleep-overlay";
@@ -320,45 +329,6 @@ bool renderTransparentOverlayPass(HalFile& file, const OverlayBmpInfo& info, con
   return true;
 }
 
-// Starts a gray plane under an overlay. Absolute planes keep the B/W base; other gray planes carry only
-// the overlay's gray. Cover + Transparent redraws a gray cover (set only for absolute planes) to keep its gray levels.
-// Overlay gray leaves a mask plane in the framebuffer, so a later B/W update of
-// the retained sleep frame (the Picco USB charge strip) needs the B/W frame back.
-// Absolute planes must keep the gray baseline: restoring the B/W frame there
-// makes the next fast refresh drop the grays (Picco SSD1677).
-class BwFrameKeeper {
- public:
-  BwFrameKeeper(GfxRenderer& renderer, const bool keep)
-      : renderer(renderer), keep(keep), stored(!keep || renderer.storeBwBuffer()) {}
-  ~BwFrameKeeper() {
-    if (keep && stored) renderer.restoreBwBuffer();
-  }
-  // False when the B/W frame could not be kept; callers must skip the gray passes.
-  bool ready() const { return stored; }
-  BwFrameKeeper(const BwFrameKeeper&) = delete;
-  BwFrameKeeper& operator=(const BwFrameKeeper&) = delete;
-
- private:
-  GfxRenderer& renderer;
-  const bool keep;
-  const bool stored;
-};
-
-bool beginOverlayGrayPlane(GfxRenderer& renderer, const Bitmap* grayCover, const GfxRenderer::RenderMode plane,
-                           const bool absolute) {
-  if (grayCover) {
-    if (grayCover->rewindToData() != BmpReaderError::Ok) return false;
-    renderer.clearScreen();
-  } else if (!absolute) {
-    renderer.clearScreen(0x00);
-  }
-  renderer.setRenderMode(plane);
-  if (!grayCover) return true;
-  const auto placement = calculateBitmapPlacement(grayCover->getWidth(), grayCover->getHeight(), renderer);
-  return renderer.drawBitmap(*grayCover, placement.x, placement.y, renderer.getScreenWidth(),
-                             renderer.getScreenHeight(), placement.cropX, placement.cropY);
-}
-
 enum class AlphaOverlayResult : uint8_t { Rendered, NotAlphaOverlay, Error };
 enum class AlphaScanResult : uint8_t { Useful, NotUseful, Error };
 
@@ -387,8 +357,7 @@ AlphaScanResult scanForUsefulAlpha(HalFile& file, const OverlayBmpInfo& info, ui
   return AlphaScanResult::NotUseful;
 }
 
-AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& renderer, const char* pathForLog,
-                                                  const Bitmap* grayCover) {
+AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& renderer, const char* pathForLog) {
   OverlayBmpInfo info;
   if (!parseOverlayBmpHeader(file, info, false)) return AlphaOverlayResult::NotAlphaOverlay;
 
@@ -408,11 +377,6 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
   if (!renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::BW))
     return AlphaOverlayResult::Error;
   const bool absolute = renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
-  const BwFrameKeeper bwFrame(renderer, !absolute);
-  if (!bwFrame.ready()) {
-    renderer.displayBuffer(kSleepClean);
-    return AlphaOverlayResult::Rendered;
-  }
   if (absolute) {
     cleanBeforeAbsoluteGray(renderer);
     if (!renderer.displayGrayscaleBase(sleepGrayscaleMode(renderer))) return AlphaOverlayResult::Error;
@@ -421,8 +385,9 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
   }
 
   // Absolute planes retain B/W background bits; each visible overlay pixel is rewritten in both passes.
-  if (!beginOverlayGrayPlane(renderer, grayCover, GfxRenderer::GRAYSCALE_LSB, absolute) ||
-      !renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::GrayscaleLsb)) {
+  if (!absolute) renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  if (!renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::GrayscaleLsb)) {
     renderer.setRenderMode(GfxRenderer::BW);
     // Keep the current display instead of trying another overlay with a
     // framebuffer that now contains an incomplete gray plane.
@@ -430,8 +395,9 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
   }
   renderer.copyGrayscaleLsbBuffers();
 
-  if (!beginOverlayGrayPlane(renderer, grayCover, GfxRenderer::GRAYSCALE_MSB, absolute) ||
-      !renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::GrayscaleMsb)) {
+  if (!absolute) renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+  if (!renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::GrayscaleMsb)) {
     renderer.setRenderMode(GfxRenderer::BW);
     return AlphaOverlayResult::Rendered;
   }
@@ -485,29 +451,18 @@ bool findNextValidSleepImage(HalFile& dir, const SleepRecentKind recentKind, cha
   return false;
 }
 
-bool selectRandomSleepFile(const char* firstDirPath, const char* secondDirPath, const SleepRecentKind recentKind,
-                           std::string& selectedPath) {
+bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind, std::string& selectedPath) {
+  auto dir = Storage.open(dirPath);
+  if (!dir || !dir.isDirectory()) return false;
+
   auto name = makeUniqueNoThrow<char[]>(MAX_SLEEP_FILE_NAME_LEN);
   if (!name) {
     LOG_ERR("SLP", "OOM: sleep filename buffer");
     return false;
   }
 
-  constexpr size_t DIRECTORY_COUNT = 2;
-  const char* dirPaths[DIRECTORY_COUNT] = {firstDirPath, secondDirPath};
-  uint16_t directoryCounts[DIRECTORY_COUNT] = {};
   uint16_t fileCount = 0;
-  for (size_t i = 0; i < DIRECTORY_COUNT; i++) {
-    auto dir = Storage.open(dirPaths[i]);
-    if (!dir || !dir.isDirectory()) continue;
-
-    const auto remainingCapacity = static_cast<uint16_t>(UINT16_MAX - fileCount);
-    while (directoryCounts[i] < remainingCapacity && findNextValidSleepImage(dir, recentKind, name.get())) {
-      directoryCounts[i]++;
-    }
-    fileCount = static_cast<uint16_t>(fileCount + directoryCounts[i]);
-  }
-
+  while (fileCount < UINT16_MAX && findNextValidSleepImage(dir, recentKind, name.get())) ++fileCount;
   if (fileCount == 0) return false;
 
   // Pick a random wallpaper, excluding recently shown ones.
@@ -520,25 +475,13 @@ bool selectRandomSleepFile(const char* firstDirPath, const char* secondDirPath, 
     randomFileIndex = static_cast<uint16_t>(random(fileCount));
   }
 
-  size_t directoryIndex = 0;
-  uint16_t localIndex = randomFileIndex;
-  if (randomFileIndex >= directoryCounts[0]) {
-    directoryIndex = 1;
-    localIndex = static_cast<uint16_t>(randomFileIndex - directoryCounts[0]);
-  }
-
-  auto dir = Storage.open(dirPaths[directoryIndex]);
-  if (!dir || !dir.isDirectory()) {
-    LOG_ERR("SLP", "Failed to open selected sleep image directory: %s", dirPaths[directoryIndex]);
-    return false;
-  }
-  for (uint16_t index = 0; index <= localIndex; ++index) {
+  dir.rewindDirectory();
+  for (uint16_t index = 0; index <= randomFileIndex; ++index) {
     if (!findNextValidSleepImage(dir, recentKind, name.get())) return false;
   }
 
-  const char* selectedDirPath = dirPaths[directoryIndex];
-  selectedPath.reserve(strlen(selectedDirPath) + 1 + strlen(name.get()));
-  selectedPath = selectedDirPath;
+  selectedPath.reserve(strlen(dirPath) + 1 + strlen(name.get()));
+  selectedPath = dirPath;
   selectedPath += "/";
   selectedPath += name.get();
   pushRecentSleepIndex(recentKind, randomFileIndex);
@@ -584,6 +527,13 @@ void releaseSdFontCachesForDecode(const GfxRenderer& renderer) {
 
 }  // namespace
 
+void SleepActivity::onExit() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
+  Activity::onExit();
+}
+
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
@@ -607,9 +557,7 @@ void SleepActivity::onEnter() {
   // night-mode reader render.
   display.setInverted(false);
 
-  const uint8_t sleepScreen = SETTINGS.sleepScreen;
-  if (sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM ||
-      sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_TRANSPARENT) {
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM) {
     // Transparent mode retains the current framebuffer. Materialize any
     // output-level inversion first so the retained content keeps its visible
     // polarity after the display driver returns to normal.
@@ -622,9 +570,6 @@ void SleepActivity::onEnter() {
       renderer.setOrientation(GfxRenderer::Orientation::Portrait);
     }
     releaseSdFontCachesForDecode(renderer);
-    if (sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_TRANSPARENT) {
-      return renderCoverSleepScreen();
-    }
     return renderTransparentCustomSleepScreen();
   }
 
@@ -658,7 +603,7 @@ void SleepActivity::onEnter() {
 void SleepActivity::renderCustomSleepScreen() const {
   // Look for sleep.bmp on the root of the sd card to determine if we should
   // render a custom sleep screen instead of the default.
-  // This takes priority over both custom sleep directories.
+  // This takes priority over the /sleep folder.
   HalFile file;
   if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
     Bitmap bitmap(file, true,
@@ -675,7 +620,9 @@ void SleepActivity::renderCustomSleepScreen() const {
   }
 
   std::string selectedPath;
-  selectRandomSleepFile("/.sleep", "/sleep", SleepRecentKind::Standard, selectedPath);
+  if (!selectRandomSleepFile("/.sleep", SleepRecentKind::Standard, selectedPath)) {
+    selectRandomSleepFile("/sleep", SleepRecentKind::Standard, selectedPath);
+  }
 
   if (!selectedPath.empty()) {
     HalFile randFile;
@@ -698,21 +645,307 @@ void SleepActivity::renderCustomSleepScreen() const {
   renderDefaultSleepScreen();
 }
 
-// Sleep screens paint with a single HALF refresh (stock parity): the OEM X4
-// firmware's only clean refresh in normal operation is the single-pass 0xD7
-// sequence, used once for the sleep image. It never runs the multi-flash GC
-// waveform (0xF7) that FULL_REFRESH selects (#2471's blinking complaint).
+#include "ClockDigits.h"
+
+namespace {
+void drawDashedRoundedRect(const GfxRenderer& renderer, int x, int y, int w, int h, int r) {
+  // Cạnh trên & cạnh dưới nét đứt
+  for (int px = x + r; px < x + w - r; px += 3) {
+    renderer.drawPixel(px, y, true);
+    renderer.drawPixel(px, y + h - 1, true);
+  }
+  // Cạnh trái & cạnh phải nét đứt
+  for (int py = y + r; py < y + h - r; py += 3) {
+    renderer.drawPixel(x, py, true);
+    renderer.drawPixel(x + w - 1, py, true);
+  }
+  // 4 góc bo nhẹ
+  if (r > 0) {
+    renderer.drawPixel(x + 1, y + 1, true);
+    renderer.drawPixel(x + w - 2, y + 1, true);
+    renderer.drawPixel(x + 1, y + h - 2, true);
+    renderer.drawPixel(x + w - 2, y + h - 2, true);
+  }
+}
+
+std::string resolveRecentBookCoverPath(const RecentBook& book) {
+  static constexpr int COMMON_HEIGHTS[] = {218, 226, 200, 180, 160, 260, 134, 151, 132, 300, 400};
+  if (!book.coverBmpPath.empty()) {
+    std::string path = book.coverBmpPath;
+    const std::string placeholder = "[HEIGHT]";
+    const size_t pos = path.find(placeholder);
+    if (pos != std::string::npos) {
+      for (const int h : COMMON_HEIGHTS) {
+        std::string candidate = path;
+        candidate.replace(pos, placeholder.length(), std::to_string(h));
+        if (Storage.exists(candidate.c_str())) return candidate;
+      }
+    } else if (Storage.exists(path.c_str())) {
+      return path;
+    }
+  }
+  if (FsHelpers::hasEpubExtension(book.path)) {
+    Epub epub(book.path, "/.crosspoint");
+    for (const int h : COMMON_HEIGHTS) {
+      const std::string thumb = epub.getThumbBmpPath(h);
+      if (Storage.exists(thumb.c_str())) return thumb;
+    }
+    const std::string cover = epub.getCoverBmpPath(false, false);
+    if (Storage.exists(cover.c_str())) return cover;
+    if (epub.generateThumbBmp(218)) {
+      const std::string thumb = epub.getThumbBmpPath(218);
+      if (Storage.exists(thumb.c_str())) return thumb;
+    }
+  }
+  if (FsHelpers::hasXtcExtension(book.path)) {
+    Xtc xtc(book.path, "/.crosspoint");
+    for (const int h : COMMON_HEIGHTS) {
+      const std::string thumb = xtc.getThumbBmpPath(h);
+      if (Storage.exists(thumb.c_str())) return thumb;
+    }
+    const std::string cover = xtc.getCoverBmpPath();
+    if (Storage.exists(cover.c_str())) return cover;
+  }
+  return "";
+}
+}  // namespace
+
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  renderer.clearScreen();
-  renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSPOINT), true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
+  renderer.clearScreen(0xFF);
 
-  // Make sleep screen dark unless light is selected in settings
-  if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT) {
+  // 1. TOP STATUS BAR (Không khung bo, thanh lịch, tinh tế)
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[32];
+  snprintf(headerBuf, sizeof(headerBuf), "ĐÃ KHÓA  \u00b7  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 36, headerBuf, true);
+
+  // 2. ĐỒNG HỒ SỐ LỚN VÀ NGÀY THÁNG (Ubuntu-Bold 74pt native bitmap, sắc nét 100% không rỗ)
+  struct tm timeInfo{};
+  char timeBuf[16] = "07:34";
+  char dateBuf[48] = "Thứ Năm, 22/10";
+  char lunarBuf[64] = "";
+
+  if (halClock.isAvailable() && halClock.localTime(timeInfo)) {
+    halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
+
+    static const char* const kDayNamesVi[] = {"Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"};
+    const char* dayVi = (timeInfo.tm_wday >= 0 && timeInfo.tm_wday < 7) ? kDayNamesVi[timeInfo.tm_wday] : "";
+    snprintf(dateBuf, sizeof(dateBuf), "%s, %02d/%02d", dayVi, timeInfo.tm_mday, timeInfo.tm_mon + 1);
+
+    const int solarYear = timeInfo.tm_year + 1900;
+    const int solarMonth = timeInfo.tm_mon + 1;
+    const int solarDay = timeInfo.tm_mday;
+    LunarDate lunar = LunarCalendar::solarToLunar(solarDay, solarMonth, solarYear);
+    if (lunar.isLeap) {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d (Nhuận) · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    } else {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    }
+  }
+
+  // Đồng hồ số lớn Ubuntu TrueType native căn giữa (baselineY = 140)
+  clock_font::drawClock(renderer, pageWidth / 2, 140, timeBuf);
+
+  // Ngày tháng căn giữa thoáng đãng
+  renderer.drawCenteredText(UI_10_FONT_ID, 162, dateBuf, true);
+
+  // Lịch Âm căn giữa trang nhã bên dưới
+  if (lunarBuf[0] != '\0') {
+    renderer.drawCenteredText(UI_10_FONT_ID, 188, lunarBuf, true);
+  }
+
+  // 3. 2 THẺ THÔNG TIN ĐƯỢC CHUYỂN XUỐNG DƯỚI (Neo-Brutalist Cards)
+  constexpr int cardX = 24;
+  const int cardW = pageWidth - cardX * 2;
+  constexpr int card1H = 164;
+  constexpr int card2H = 176;
+
+  // Thẻ 2 neo ở đáy (cách mép dưới 36px)
+  const int card2Y = pageHeight - card2H - 36; // 800 - 176 - 36 = 588px
+  // Thẻ 1 cách thẻ 2 16px
+  const int card1Y = card2Y - card1H - 16;      // 588 - 164 - 16 = 408px
+
+  // Khung bo góc viền đơn mảnh thẻ 1
+  renderer.drawRoundedRect(cardX, card1Y, cardW, card1H, 1, 14, true);
+
+  const auto& books = RECENT_BOOKS.getBooks();
+  const RecentBook* book = nullptr;
+  if (!APP_STATE.openEpubPath.empty()) {
+    for (const auto& b : books) {
+      if (b.path == APP_STATE.openEpubPath) {
+        book = &b;
+        break;
+      }
+    }
+  }
+  if (!book && !books.empty()) {
+    book = &books.front();
+  }
+
+  // Bìa sách bên trái
+  constexpr int coverW = 86;
+  constexpr int coverH = 132;
+  constexpr int coverX = cardX + 16;
+  const int coverY = card1Y + 16;
+  renderer.drawRoundedRect(coverX, coverY, coverW, coverH, 1, 6, true);
+
+  bool drewCoverImage = false;
+  if (book != nullptr) {
+    const std::string coverPath = resolveRecentBookCoverPath(*book);
+    if (!coverPath.empty()) {
+      HalFile file;
+      if (Storage.openFileForRead("SLP", coverPath, file)) {
+        Bitmap bitmap(file);
+        if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+          renderer.drawBitmap(bitmap, coverX + 1, coverY + 1, coverW - 2, coverH - 2);
+          drewCoverImage = true;
+        }
+        file.close();
+      }
+    }
+
+    if (!drewCoverImage) {
+      // Texture giả lập bìa sách đổ hạt tinh tế
+      for (int py = coverY + 4; py < coverY + coverH - 4; py += 3) {
+        renderer.drawLine(coverX + 6, py, coverX + coverW - 6, py, 1, true);
+      }
+    }
+
+    // Text thông tin sách bên phải
+    constexpr int textX = coverX + coverW + 18;
+    const int maxTextW = cardW - (textX - cardX) - 16;
+
+    // Tên sách
+    const std::string titleStr = renderer.truncatedText(UI_12_FONT_ID, book->title.empty() ? book->path.c_str() : book->title.c_str(), maxTextW);
+    renderer.drawText(UI_12_FONT_ID, textX, card1Y + 24, titleStr.c_str(), true, EpdFontFamily::BOLD);
+
+    // Tác giả
+    const std::string authStr = renderer.truncatedText(UI_10_FONT_ID, book->author.empty() ? "CrossPoint" : book->author.c_str(), maxTextW);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 66, authStr.c_str(), true);
+
+    // Tiến độ đọc & thời gian đọc
+    const int progress = loadBookProgress(book->path);
+    const int readPct = progress >= 0 ? progress : 0;
+    char readStatsBuf[64];
+    snprintf(readStatsBuf, sizeof(readStatsBuf), "\u0110\u00e3 \u0111\u1ecdc: %d%% \u00b7 5 ph\u00fat", readPct);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 104, readStatsBuf, true);
+
+    // Thanh gạch ngang mảnh tiến độ
+    const int barY = card1Y + 132;
+    const int barEndX = cardX + cardW - 18;
+    renderer.drawLine(textX, barY, barEndX, barY, 1, true);
+    if (readPct > 0) {
+      const int filledW = std::clamp((barEndX - textX) * readPct / 100, 2, barEndX - textX);
+      renderer.drawLine(textX, barY, textX + filledW, barY, 2, true);
+    }
+  } else {
+    // Khi chưa mở sách nào
+    for (int py = coverY + 4; py < coverY + coverH - 4; py += 3) {
+      renderer.drawLine(coverX + 6, py, coverX + coverW - 6, py, 1, true);
+    }
+    constexpr int textX = coverX + coverW + 18;
+    renderer.drawText(UI_12_FONT_ID, textX, card1Y + 36, "CROSSBASIC OS", true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 74, "Kh\u00f4ng c\u00f3 s\u00e1ch \u0111ang \u0111\u1ecdc", true);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 110, "M\u1edf th\u01b0 vi\u1ec7n \u0111\u1ec3 b\u1eaft \u0111\u1ea7u", true);
+  }
+
+  // 4. THẺ 2: THỐNG KÊ THÁNG NÀY & LƯỚI LỊCH HEATMAP (READING STATS & HEATMAP)
+  renderer.drawRoundedRect(cardX, card2Y, cardW, card2H, 1, 14, true);
+
+  // Nạp thống kê đọc sách toàn hệ thống
+  const GlobalReadingStats globalStats = GlobalReadingStats::load();
+  ReadingStatsDateTime statsNow{};
+  getCurrentLocalReadingStatsDateTime(statsNow);
+
+  // Cột bên trái: Thống kê tổng quan
+  constexpr int statX = cardX + 20;
+  renderer.drawText(UI_10_FONT_ID, statX, card2Y + 18, "Th\u00e1ng n\u00e0y", true);
+
+  // Tổng thời gian đọc số to
+  char durBuf[32] = "7m";
+  if (globalStats.totalReadingSeconds > 0) {
+    formatCompactReadingDuration(globalStats.totalReadingSeconds, durBuf, sizeof(durBuf));
+  }
+  renderer.drawText(NOTOSANS_18_FONT_ID, statX, card2Y + 42, durBuf, true, EpdFontFamily::BOLD);
+
+  // Số sách hoàn thành
+  char finishedBuf[32];
+  snprintf(finishedBuf, sizeof(finishedBuf), "%u cu\u1ed1n xong", static_cast<unsigned>(globalStats.completedBooks));
+  renderer.drawText(UI_10_FONT_ID, statX, card2Y + 86, finishedBuf, true);
+
+  // ĐỔI DẠNG CHUỖI ĐỌC: Khung viền đơn mảnh bo góc, căn giữa chữ chuẩn mực, bỏ hoàn toàn icon chấm/ngọn lửa
+  const uint16_t streak = globalStats.currentReadingStreak(&statsNow.date);
+  const int badgeY = card2Y + 118;
+  char streakText[32];
+  snprintf(streakText, sizeof(streakText), "Chu\u1ed7i %u ng\u00e0y", static_cast<unsigned>(streak > 0 ? streak : 1));
+  const int streakW = renderer.getTextWidth(UI_10_FONT_ID, streakText, EpdFontFamily::BOLD);
+  const int badgeW = streakW + 24;
+  constexpr int badgeH = 26;
+
+  // Viền đơn mảnh bo góc 8px, nền trắng thanh nhã
+  renderer.drawRoundedRect(statX, badgeY, badgeW, badgeH, 1, 8, true);
+
+  // Chữ căn giữa chuẩn mực bên trong khung
+  const int textY = badgeY + (badgeH - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+  renderer.drawText(UI_10_FONT_ID, statX + 12, textY, streakText, true, EpdFontFamily::BOLD);
+
+  // Lưới Lịch Tháng (Calendar Heatmap Grid 7 cột)
+  constexpr int cellSize = 15;
+  constexpr int cellGap = 4;
+  constexpr int gridCols = 7;
+  constexpr int gridW = gridCols * cellSize + (gridCols - 1) * cellGap; // 129px
+  const int gridX = cardX + cardW - gridW - 20;
+  const int gridY = card2Y + 22;
+
+  const uint16_t curYear = (timeInfo.tm_year > 0) ? (timeInfo.tm_year + 1900) : 2026;
+  const uint8_t curMonth = (timeInfo.tm_mon >= 0 && timeInfo.tm_mon < 12) ? (timeInfo.tm_mon + 1) : 10;
+  const uint8_t curDay = (timeInfo.tm_mday > 0 && timeInfo.tm_mday <= 31) ? timeInfo.tm_mday : 22;
+  const uint8_t totalDaysInMonth = daysInMonth(curYear, curMonth);
+
+  // Thứ của ngày mùng 1 (Quy ước: Thứ Hai = 0 ... Chủ Nhật = 6)
+  int firstWday = (timeInfo.tm_wday - ((curDay - 1) % 7) + 7) % 7;
+  int startCol = (firstWday + 6) % 7; // tm_wday: 0=CN, 1=T2 -> đổi thành T2=0, CN=6
+
+  for (uint8_t d = 1; d <= totalDaysInMonth; ++d) {
+    const int slot = startCol + (d - 1);
+    const int col = slot % 7;
+    const int row = slot / 7;
+
+    const int cx = gridX + col * (cellSize + cellGap);
+    const int cy = gridY + row * (cellSize + cellGap);
+
+    if (d <= curDay) {
+      // Ngày quá khứ hoặc hôm nay
+      bool hasRead = (d == curDay); // Hôm nay mặc định active
+      if (globalStats.readingHistoryAnchorDay > 0) {
+        const ReadingStatsDate checkDate{curYear, curMonth, d};
+        const uint32_t checkIndex = readingStatsDayIndex(checkDate);
+        if (checkIndex <= globalStats.readingHistoryAnchorDay) {
+          const uint32_t delta = globalStats.readingHistoryAnchorDay - checkIndex;
+          if (delta < READING_HISTORY_DAYS) {
+            hasRead = ((globalStats.readingHistoryBits[delta / 8] >> (delta % 8)) & 1) != 0;
+            if (d == curDay) hasRead = true;
+          }
+        }
+      }
+
+      if (hasRead) {
+        renderer.fillRoundedRect(cx, cy, cellSize, cellSize, 2, Color::Black);
+      } else {
+        renderer.drawRoundedRect(cx, cy, cellSize, cellSize, 1, 2, true);
+      }
+    } else {
+      // Các ngày trong tương lai: vẽ viền nét đứt (dashed)
+      drawDashedRoundedRect(renderer, cx, cy, cellSize, cellSize, 2);
+    }
+  }
+
+  // Đảo màu thành nền tối nếu người dùng chọn chế độ "Đồng hồ (Tối)"
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK) {
     renderer.invertScreen();
   }
 
@@ -732,9 +965,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
   if (!preserveBackground) renderer.clearScreen();
 
-  const bool hasGreyscale = (bitmap.hasGreyscale() || (preserveBackground && overlayGrayCover)) &&
-                            (preserveBackground || SETTINGS.sleepScreenCoverFilter ==
-                                                       CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
+  const bool hasGreyscale =
+      bitmap.hasGreyscale() && (preserveBackground || SETTINGS.sleepScreenCoverFilter ==
+                                                          CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
 
   if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
     renderer.displayBuffer(kSleepClean);
@@ -746,22 +979,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     renderer.invertScreen();
   }
 
-  // Cover + Transparent: the B/W cover is the overlay's background; the overlay renderers redraw its gray planes.
-  if (overlayCover == &bitmap) {
-    if (hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported()) {
-      overlayGrayCover = &bitmap;
-    }
-    renderTransparentCustomSleepScreen();
-    overlayGrayCover = nullptr;
-    return;
-  }
-
   const bool absolute = hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
-  const BwFrameKeeper bwFrame(renderer, hasGreyscale && !absolute);
-  if (!bwFrame.ready()) {
-    renderer.displayBuffer(kSleepClean);
-    return;
-  }
   if (absolute) {
     cleanBeforeAbsoluteGray(renderer);
     if (!renderer.displayGrayscaleBase(sleepGrayscaleMode(renderer))) return;
@@ -782,15 +1000,8 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
         ready = false;
         break;
       }
-      if (preserveBackground) {
-        if (!beginOverlayGrayPlane(renderer, overlayGrayCover, plane, absolute)) {
-          ready = false;
-          break;
-        }
-      } else {
-        renderer.clearScreen(absolute ? 0xFF : 0x00);
-        renderer.setRenderMode(plane);
-      }
+      if (!absolute || !preserveBackground) renderer.clearScreen(absolute ? 0xFF : 0x00);
+      renderer.setRenderMode(plane);
       if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
         ready = false;
         break;
@@ -809,7 +1020,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
 }
 
 bool SleepActivity::renderSleepOverlayFile(HalFile& file, const char* pathForLog) const {
-  const auto alphaResult = tryRenderTransparentOverlayBmp(file, renderer, pathForLog, overlayGrayCover);
+  const auto alphaResult = tryRenderTransparentOverlayBmp(file, renderer, pathForLog);
   if (alphaResult == AlphaOverlayResult::Rendered) return true;
   if (alphaResult == AlphaOverlayResult::Error) return false;
 
@@ -848,29 +1059,24 @@ bool SleepActivity::renderTransparentOverlayPng(const std::string& path) const {
 
   if (!converter.decodeToFramebuffer(path, renderer, config)) return false;
   const bool absolute = renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
-  const BwFrameKeeper bwFrame(renderer, !absolute);
-  if (!bwFrame.ready()) {
-    renderer.displayBuffer(kSleepClean);
-    return true;
-  }
   if (absolute) {
-    // The cover replaces the previous screen, so clean it like the BMP paths do.
-    if (overlayCover) cleanBeforeAbsoluteGray(renderer);
     if (!renderer.displayGrayscaleBase(sleepGrayscaleMode(renderer))) return false;
   } else {
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   }
 
   // Absolute planes retain B/W background bits; each visible overlay pixel is rewritten in both passes.
-  if (!beginOverlayGrayPlane(renderer, overlayGrayCover, GfxRenderer::GRAYSCALE_LSB, absolute) ||
-      !converter.decodeToFramebuffer(path, renderer, config)) {
+  if (!absolute) renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  if (!converter.decodeToFramebuffer(path, renderer, config)) {
     renderer.setRenderMode(GfxRenderer::BW);
     return true;
   }
   renderer.copyGrayscaleLsbBuffers();
 
-  if (!beginOverlayGrayPlane(renderer, overlayGrayCover, GfxRenderer::GRAYSCALE_MSB, absolute) ||
-      !converter.decodeToFramebuffer(path, renderer, config)) {
+  if (!absolute) renderer.clearScreen(0x00);
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+  if (!converter.decodeToFramebuffer(path, renderer, config)) {
     renderer.setRenderMode(GfxRenderer::BW);
     return true;
   }
@@ -895,30 +1101,21 @@ void SleepActivity::renderTransparentCustomSleepScreen() const {
   if (renderSleepOverlayPath(TRANSPARENT_SLEEP_ROOT_PNG)) return;
 
   std::string selectedPath;
-  selectRandomSleepFile(TRANSPARENT_SLEEP_DIR, TRANSPARENT_SLEEP_LEGACY_DIR, SleepRecentKind::Overlay, selectedPath);
+  if (!selectRandomSleepFile(TRANSPARENT_SLEEP_DIR, SleepRecentKind::Overlay, selectedPath)) {
+    selectRandomSleepFile(TRANSPARENT_SLEEP_LEGACY_DIR, SleepRecentKind::Overlay, selectedPath);
+  }
 
   if (!selectedPath.empty() && renderSleepOverlayPath(selectedPath)) return;
 
   LOG_ERR("SLP", "No valid transparent sleep overlay found");
-  if (overlayCover) {
-    // Show the plain cover.
-    const Bitmap& cover = *overlayCover;
-    overlayCover = nullptr;
-    if (cover.rewindToData() == BmpReaderError::Ok) return renderBitmapSleepScreen(cover);
-  }
   renderDefaultSleepScreen();
 }
 
 void SleepActivity::renderCoverSleepScreen() const {
   void (SleepActivity::*renderNoCoverSleepScreen)() const;
-  bool withOverlay = false;
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
       renderNoCoverSleepScreen = &SleepActivity::renderCustomSleepScreen;
-      break;
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_TRANSPARENT):
-      renderNoCoverSleepScreen = &SleepActivity::renderTransparentCustomSleepScreen;
-      withOverlay = true;
       break;
     default:
       renderNoCoverSleepScreen = &SleepActivity::renderDefaultSleepScreen;
@@ -976,9 +1173,7 @@ void SleepActivity::renderCoverSleepScreen() const {
     Bitmap bitmap(file);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      if (withOverlay) overlayCover = &bitmap;
       renderBitmapSleepScreen(bitmap);
-      overlayCover = nullptr;
       return;
     }
   }

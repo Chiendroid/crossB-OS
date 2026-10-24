@@ -13,12 +13,19 @@
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "ClipSelectionActivity.h"
+#include "EpubReaderDrawerActivity.h"
 #include "EpubReaderMenuActivity.h"
+#include "EpubReaderMenuModel.h"
+#include "TouchReaderPreviewModel.h"
 #include "LinkNoteTitle.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
 #include "components/OptionPopup.h"
+#include "BookReadingStats.h"
+#include "GlobalReadingStats.h"
+#include "ReadingSessionStats.h"
+#include "ReadingStatsUtils.h"
 
 class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
@@ -43,12 +50,21 @@ class EpubReaderActivity final : public ReaderActivity {
   uint8_t pageLoadRetryCount = 0;
   static constexpr uint8_t MAX_PAGE_LOAD_RETRIES = 3;
   bool skipNextButtonCheck = false;
+
+  // Reading statistics tracking
+  BookReadingStats bookStats;
+  GlobalReadingStats globalStats;
+  unsigned long pageShownAtMs = 0UL;
+  uint32_t sessionReadingSeconds = 0;
+  ReadingStatsDateTime sessionStartDateTime;
+  bool hasSessionStartDateTime = false;
+
+  void recordCurrentPageReadingTime();
+  void commitCurrentReadingStats();
   bool automaticPageTurnActive = false;
   bool showBookmarkMessage = false;
   bool showDictionaryMessage = false;
   unsigned long dictionaryMessageTime = 0UL;
-  bool showFontDamagedMessage = false;
-  unsigned long fontDamagedMessageTime = 0UL;
   bool showClippingMessage = false;
   StrId clippingMessage = StrId::STR_CLIPPING_SAVED;
   unsigned long clippingMessageTime = 0UL;
@@ -82,6 +98,8 @@ class EpubReaderActivity final : public ReaderActivity {
   // FreeInkUI chrome + tap targets for the overlay; created when it opens,
   // released when it closes.
   std::unique_ptr<ReaderToolbarUi> toolbarUi;
+  int drawerTab = 0;
+  int drawerTocPage = 0;
   // Modal option picker over the panel (same component the Settings screens
   // use), for enum rows: font size / line spacing / alignment / orientation /
   // auto page turn. Toggle rows stay one-tap toggles, as in Settings.
@@ -136,14 +154,6 @@ class EpubReaderActivity final : public ReaderActivity {
   bool backgroundBuildWanted() const;
   bool buildTickHeapGate();
   bool buildHeapPaused = false;
-  // One bounded build step on the loop task, in a frame whose input did nothing. Lays out about
-  // BACKGROUND_BUILD_PAGES_PER_TICK pages (one 1 KB parse step may add more) and hands the loop
-  // back as soon as a button is down, so a short press is seen before more pages are built.
-  void backgroundBuildTick();
-  bool anyButtonPressed() const;
-  // A background build failed in this spine. The error would likely recur, so from then on the
-  // spine is built only as far as the reader goes; pages from earlier build steps stay readable.
-  int backgroundBuildFailedSpine = -1;
   // Bluetooth page turner: every chapter build stops the radio until the chapter is built and its
   // page is shown. False: the radio still holds or is taking the heap, and the build must not run.
   std::atomic<bool> radioReleasedForBuild{false};
@@ -154,6 +164,7 @@ class EpubReaderActivity final : public ReaderActivity {
   // "Connecting Bluetooth…" or "Bluetooth failed" in place of the status bar title.
   mutable LinkNoteTitle linkNoteTitle;
   static constexpr size_t RENDER_MIN_FREE_HEAP = 24 * 1024;
+  static constexpr int BUILD_WINDOW_AHEAD = 5;
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
   static constexpr int BUILD_POPUP_PAGE_THRESHOLD = 20;
   static constexpr size_t BUILD_POPUP_BYTE_THRESHOLD = 96 * 1024;
@@ -205,6 +216,8 @@ class EpubReaderActivity final : public ReaderActivity {
   bool launchKOReaderSync();
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
+  ReaderDrawerState touchReaderDrawerState{};
+  std::unique_ptr<TouchReaderPreviewModel> touchReaderPreviewModel;
   void loadCachedBookmarks();
   void addBookmark();
   void updateBookmarkFlag();
@@ -215,6 +228,12 @@ class EpubReaderActivity final : public ReaderActivity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
+  void drawReadingUnderlines(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
+  void renderTimerNotification();
+
+  uint32_t sessionStartMs = 0;
+  bool timerNotificationShown = false;
+  bool timerNotificationVisible = false;
   void renderStatusBar() const;
   void applyOrientation(uint8_t orientation);
   void applyInitialOrientation() override;
@@ -247,11 +266,15 @@ class EpubReaderActivity final : public ReaderActivity {
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string bookPath,
                               bool allowFastInitialRefresh)
-      : ReaderActivity("EpubReader", renderer, mappedInput, std::move(bookPath), allowFastInitialRefresh) {}
+      : ReaderActivity("EpubReader", renderer, mappedInput, std::move(bookPath), allowFastInitialRefresh),
+        sessionStartMs(0),
+        timerNotificationShown(false),
+        timerNotificationVisible(false) {}
   ~EpubReaderActivity() override;
 
   void loop() override;
   void render(RenderLock&& lock) override;
+  void prepareForSleep() override;
 
   bool pageTurn(bool isForward) override;
   bool skipPages(int amount) override;

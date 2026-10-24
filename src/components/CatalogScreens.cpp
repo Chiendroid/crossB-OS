@@ -15,7 +15,8 @@
 namespace fui = freeink::ui;
 
 void catalogScreenHeader(UiAppHost::UiScreen& screen, const GfxRenderer& renderer, const char* title,
-                         const fui::BitmapRef& trailingIcon, const fui::ActionId trailingAction) {
+                         const fui::BitmapRef& trailingIcon, const fui::ActionId trailingAction,
+                         const bool backButton) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& theme = screen.theme();
   fui::HeaderProps header;
@@ -34,7 +35,7 @@ void catalogScreenHeader(UiAppHost::UiScreen& screen, const GfxRenderer& rendere
   // Button::Back, so each page's own Back handling applies (leaving a list,
   // cancelling a download). The action id only makes the header paint the
   // button; no screen registers it.
-  if (gpio.hasTouch()) {
+  if (gpio.hasTouch() && backButton) {
     static constexpr fui::ActionId PAINT_ONLY_BACK = 0xFFFF;
     header.leadingIcon = fui::bitmapFromIcon(icon_header_back_32);
     header.leadingAction = PAINT_ONLY_BACK;
@@ -42,7 +43,10 @@ void catalogScreenHeader(UiAppHost::UiScreen& screen, const GfxRenderer& rendere
     // and a tap flash (never cleared, since no handler owns this action)
     // renders the same as the resting state instead of sticking.
     header.leadingStyles = fui::plainStyles(fui::Paint::solid(fui::Color::Black));
+    header.leftReserve = 8;
     HeaderBackTapTarget::set(band.x + 4, band.y + 4 + header.actionOffsetY, header.leadingSize, header.leadingSize);
+  } else {
+    HeaderBackTapTarget::clear();
   }
   if (trailingIcon && trailingAction != fui::NO_ACTION) {
     header.trailingIcon = trailingIcon;

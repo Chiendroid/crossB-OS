@@ -7,7 +7,14 @@
 #define NOTOSANS_18_FONT_ID (-348426591)
 #define UI_10_FONT_ID (1322569422)
 #define UI_12_FONT_ID (1831230762)
-#define SMALL_FONT_ID (-1769521860)
+#define SMALL_FONT_ID (1465627787)
+
+#ifndef LEXENDDECA_10_FONT_ID
+#define LEXENDDECA_10_FONT_ID (UI_10_FONT_ID)
+#define LEXENDDECA_12_FONT_ID (UI_12_FONT_ID)
+#define LEXENDDECA_14_FONT_ID (NOTOSANS_14_FONT_ID)
+#define LEXENDDECA_16_FONT_ID (NOTOSANS_16_FONT_ID)
+#endif
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.

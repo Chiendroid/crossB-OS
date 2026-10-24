@@ -5,6 +5,8 @@
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
+#include <LibraryIndexFile.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -12,11 +14,12 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/reader/BookStatsActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/icons/customListIcons.h"
 #include "components/icons/listIcons.h"
-#include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
 
@@ -28,23 +31,22 @@ constexpr fui::ActionId ACTION_BRIGHTNESS_STEP = 4;
 constexpr fui::ActionId ACTION_WARMTH_STEP = 5;
 constexpr fui::ActionId ACTION_TILE = 6;  // value = tile index
 
+static constexpr StrId kOrientNames[4] = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW,
+                                          StrId::STR_ORIENTATION_INVERTED, StrId::STR_LANDSCAPE_CCW};
+
 // iOS-style geometry. The panel is a card hanging from the top of the screen:
-// a grabber, full-width slider pills, then a 2-column tile grid. The chrome
-// itself is fui::sheet / fui::sliderRow / fui::tileGrid; these constants only
-// size the bands, and computePanelBottom() mirrors them.
+// a grabber, full-width slider pills, then a row of quick-setting action tiles.
 constexpr int16_t kPanelSideMargin = 16;
 constexpr int16_t kGrabberHeight = 5;     // fui::SheetProps default, mirrored here
-constexpr int16_t kSliderRowHeight = 56;  // the pill itself (finger-sized)
-constexpr int16_t kTileHeight = 84;
-constexpr int16_t kTileGap = 16;
-constexpr int kTileCols = 2;
+constexpr int16_t kSliderRowHeight = 42;  // Chiều cao thanh trượt gọn gàng, nút -/+ 42x42px chuẩn cảm ứng
+constexpr int16_t kTileHeight = 46;       // Chiều cao nút chức năng gọn gàng
+constexpr int16_t kTileGap = 8;           // Khoảng cách giữa các ô chức năng
+constexpr int kTileCols = 5;              // 1 hàng duy nhất gồm 5 nút!
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
 // alike (both repeat while held), so a level can be set exactly.
 constexpr int BRIGHTNESS_STEP = 1;
-// The dimmest setting is 1%, not 0: turning the light off is what the lamp
-// button next to the slider is for, so a 0% "on" level would only be a second,
-// worse way to reach the same place.
-constexpr uint8_t MIN_BRIGHTNESS = 1;
+// Mức sáng tối thiểu là 0% (kéo về 0% tắt đèn, kéo lên > 0% bật đèn)
+constexpr uint8_t MIN_BRIGHTNESS = 0;
 
 uint8_t percentFromPermille(const int16_t permille) {
   int value = (static_cast<int>(permille) * 100 + 500) / 1000;
@@ -63,7 +65,7 @@ void FrontlightPanelActivity::onEnter() {
   // A stored 0% predates the 1% floor (or came from the web settings): show it
   // as the floor rather than a level the slider can no longer produce. onExit
   // persists that, which is the intent — 0 is not a brightness any more.
-  brightness = std::max(MIN_BRIGHTNESS, Frontlight.brightness());
+  brightness = Frontlight.brightness();
   warmth = Frontlight.warmth();
   lightOn = Frontlight.isOn();
   lightOnChanged = false;
@@ -109,12 +111,18 @@ void FrontlightPanelActivity::onExit() {
 void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FrontlightPanelActivity*>(user);
   if (event.dragPermille < 0) return;
-  self->brightness = std::max(MIN_BRIGHTNESS, percentFromPermille(event.dragPermille));
-  Frontlight.setBrightness(self->brightness);
-  if (!self->lightOn && !slideSwitchOwnsLight()) {
-    self->lightOn = true;
+  self->brightness = percentFromPermille(event.dragPermille);
+  if (self->brightness == 0) {
+    self->lightOn = false;
     self->lightOnChanged = true;
-    Frontlight.setOn(true);
+    Frontlight.setOn(false);
+  } else {
+    Frontlight.setBrightness(self->brightness);
+    if (!self->lightOn) {
+      self->lightOn = true;
+      self->lightOnChanged = true;
+      Frontlight.setOn(true);
+    }
   }
 }
 
@@ -148,6 +156,7 @@ void FrontlightPanelActivity::runTile(const int idx) {
       SETTINGS.saveToFile();
       // Inversion rewrites every pixel; take the clean waveform so the panel
       // does not keep a ghost of the old polarity.
+      app.clearTapFlash();
       cleanRefreshPending = true;
       requestUpdate();
       break;
@@ -158,14 +167,7 @@ void FrontlightPanelActivity::runTile(const int idx) {
       renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
       close();
       break;
-    case 2:  // Cycle the reading orientation
-      SETTINGS.orientation = static_cast<uint8_t>((SETTINGS.orientation + 1) % 4);
-      SETTINGS.saveToFile();
-      // Only the setting changes: turning the renderer cropped the portrait-only
-      // screens the panel opens over. The reader reflows on its next loop().
-      requestUpdate();
-      break;
-    case 3:  // Touch reader controls (for reading with the palm on the glass)
+    case 2:  // Touch reader controls (for reading with the palm on the glass)
       // Toggles the existing Settings -> Controls option, nothing lower-level:
       // that setting only governs the reader's tap/swipe handling, so the
       // panel's own gestures (including the swipe that reopens it) keep
@@ -175,11 +177,37 @@ void FrontlightPanelActivity::runTile(const int idx) {
         touchModeRestore = SETTINGS.touchReaderControls;
         SETTINGS.touchReaderControls = CrossPointSettings::TOUCH_READER_OFF;
       } else {
-        SETTINGS.touchReaderControls = touchModeRestore;
+        SETTINGS.touchReaderControls = (touchModeRestore != CrossPointSettings::TOUCH_READER_OFF)
+                                           ? touchModeRestore
+                                           : CrossPointSettings::TOUCH_READER_ON;
       }
       SETTINGS.saveToFile();
+      haptic_feedback::touchAction();
+      app.clearTapFlash();
+      cleanRefreshPending = true;
       requestUpdate();
       break;
+    case 3: {  // Thống kê đọc sách (Mở màn hình Thống kê chi tiết BookStatsActivity từ CrossInk)
+      const GlobalReadingStats deviceStats = GlobalReadingStats::load();
+      if (GlobalReadingStats::hasSyncedStats()) {
+        startActivityForResult(
+            std::make_unique<BookStatsActivity>(
+                renderer, mappedInput, tr(STR_READING_STATS), "", BookReadingStats{}, -1.0f, false, 0,
+                deviceStats, GlobalReadingStats::loadAggregated(deviceStats)),
+            [this](const ActivityResult&) { close(); });
+      } else {
+        startActivityForResult(
+            std::make_unique<BookStatsActivity>(
+                renderer, mappedInput, tr(STR_READING_STATS), "", BookReadingStats{}, -1.0f, false, 0,
+                deviceStats),
+            [this](const ActivityResult&) { close(); });
+      }
+      break;
+    }
+    case 4: {  // Truyền tập tin (Mở Web Server tải sách lên có sẵn của hệ thống)
+      activityManager.goToFileTransfer();
+      break;
+    }
     default:
       break;
   }
@@ -187,15 +215,21 @@ void FrontlightPanelActivity::runTile(const int idx) {
 
 void FrontlightPanelActivity::adjustBrightness(const int delta) {
   int next = static_cast<int>(brightness) + delta;
-  if (next < MIN_BRIGHTNESS) next = MIN_BRIGHTNESS;
+  if (next < 0) next = 0;
   if (next > 100) next = 100;
   if (next == brightness) return;
   brightness = static_cast<uint8_t>(next);
-  Frontlight.setBrightness(brightness);
-  if (!lightOn && !slideSwitchOwnsLight()) {
-    lightOn = true;
+  if (brightness == 0) {
+    lightOn = false;
     lightOnChanged = true;
-    Frontlight.setOn(true);
+    Frontlight.setOn(false);
+  } else {
+    Frontlight.setBrightness(brightness);
+    if (!lightOn) {
+      lightOn = true;
+      lightOnChanged = true;
+      Frontlight.setOn(true);
+    }
   }
   requestUpdate();
 }
@@ -214,6 +248,13 @@ void FrontlightPanelActivity::toggleLight() {
   lightOn = !lightOn;
   lightOnChanged = true;
   Frontlight.setOn(lightOn);
+  if (lightOn && brightness == 0) {
+    brightness = 20;
+    Frontlight.setBrightness(brightness);
+  }
+  haptic_feedback::touchAction();
+  app.clearTapFlash();
+  cleanRefreshPending = true;
   requestUpdate();
 }
 
@@ -243,7 +284,7 @@ void FrontlightPanelActivity::loop() {
     // runs its first loop(), and panelBottom is only known once render() has
     // measured the layout — so at 0 that release read as "tapped below the
     // sheet" and closed it again before it was ever drawn.
-    if (touch.snap.touchReleased && !draggingSlider && panelBottom > 0 && touch.snap.touchY >= panelBottom) {
+    if (touch.snap.touchReleased && !draggingSlider && panelBottom > 0 && touch.snap.touchY >= panelBottom + 10) {
       close();
       return;
     }
@@ -262,7 +303,7 @@ void FrontlightPanelActivity::loop() {
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (!slideSwitchOwnsLight()) toggleLight();
+    toggleLight();
     return;
   }
 
@@ -281,10 +322,10 @@ int FrontlightPanelActivity::computePanelBottom() const {
   int y = tokens.spaceMd + y0 + tokens.spaceMd;
   if (Frontlight.present()) {
     // Screen::sliderRow reserves caption + spaceMd + control band, then a
-    // spaceMd gap; addSliderRow() adds one more spaceMd of air after each row.
-    y += lineHeight + tokens.spaceMd + kSliderRowHeight + 2 * tokens.spaceMd;  // brightness
+    // spaceMd gap; addSliderRow() adds spaceSm of air after each row.
+    y += lineHeight + tokens.spaceMd + kSliderRowHeight + tokens.spaceMd + tokens.spaceSm;  // brightness
     if (Frontlight.hasColorTemperature()) {
-      y += lineHeight + tokens.spaceMd + kSliderRowHeight + 2 * tokens.spaceMd;  // warmth
+      y += lineHeight + tokens.spaceMd + kSliderRowHeight + tokens.spaceMd + tokens.spaceSm;  // warmth
     }
     y += tokens.spaceSm;
   }
@@ -292,9 +333,8 @@ int FrontlightPanelActivity::computePanelBottom() const {
   // sheet is exactly the frontlight controls.
   const int tileCount = mappedInput.hasTouch() ? kTileCount : 0;
   y += fui::tileGridHeight(static_cast<uint16_t>(tileCount), kTileCols, kTileHeight, kTileGap);
-  // The sheet's grabber band: content margin + grabber + air to the edge.
-  // buildPanelScreen() feeds the same theme spacings into SheetProps.
-  y += tokens.spaceLg + kGrabberHeight + tokens.spaceLg + tokens.spaceMd;
+  // The sheet's grabber band: margin (16) + grabber (5) + inset (14).
+  y += 16 + kGrabberHeight + 14;
   return y;
 }
 
@@ -323,39 +363,28 @@ void FrontlightPanelActivity::addSliderRow(UiScreen& screen, const char* label, 
   rowProps.decrementValue = -BRIGHTNESS_STEP;
   rowProps.incrementValue = BRIGHTNESS_STEP;
   if (showToggle) {
-    // Lamp on/off after the +: the sliders set the level, this kills the light
-    // outright. Filled glyph = on, outline = off.
     rowProps.toggleAction = ACTION_TOGGLE;
-    rowProps.toggleIcon = fui::bitmapFromIcon(lightOn ? icon_sun_filled_32 : icon_sun_32);
+    rowProps.toggleIcon = fui::bitmapFromIcon(lightOn ? icon_lightbulb_24 : icon_lightbulb_off_24);
   } else {
     rowProps.toggleAction = fui::NO_ACTION;
     rowProps.toggleIcon = fui::BitmapRef{};
   }
   screen.sliderRow(rowProps, kSliderRowHeight);
-  // The wrapper's own trailing gap is one spaceMd; double it so the rows
-  // breathe — a control band this tall reads cramped at the list cadence.
-  screen.spacer(screen.theme().spaceMd);
+  screen.spacer(screen.theme().spaceSm);
 }
 
 void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
   const auto& theme = screen.theme();
 
-  // Sheet chrome first: the card body, the 2px rule along its bottom edge, and
-  // the grabber on the edge the sheet is dragged from. Screen::sheet() also
-  // clamps the content area to the sheet, so every band below lays out inside
-  // it. (No header: the panel is a floating card, and its own grabber says
-  // what it is.)
+  // Sheet chrome: card body, bottom rule, và thanh kéo grabber ở đáy.
+  // Khoảng đệm thoáng đãng giữa nút chức năng và thanh gạt.
   fui::SheetProps sheetProps;
-  // A roomy band above the bottom rule: the grabber gets a full spaceLg of
-  // air on both sides so the last row of content never crowds the sheet edge.
-  sheetProps.grabberMargin = theme.spaceLg;
-  sheetProps.grabberInset = static_cast<int16_t>(theme.spaceLg + theme.spaceMd);
+  sheetProps.grabberMargin = 16;
+  sheetProps.grabberInset = 14;
   screen.sheet(sheetProps, static_cast<int16_t>(panelBottom));
   screen.insetContent(fui::Insets{0, kPanelSideMargin, 0, kPanelSideMargin});
 
-  // Reuse the exact battery renderer and header rectangle used by Home. Call
-  // the base implementation directly because RoundedRaff suppresses its
-  // untitled Home header.
+  // Header pin và thời gian
   {
     const auto& metrics = UITheme::getInstance().getMetrics();
     screen.spacer(theme.spaceMd);
@@ -367,40 +396,36 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
         nullptr);
   }
 
+  // Thanh trượt Độ sáng kèm nút tắt/mở nhanh [Sun] & Thanh trượt Độ ấm
   if (Frontlight.present()) {
     addSliderRow(screen, tr(STR_BRIGHTNESS), brightness, ACTION_BRIGHTNESS, ACTION_BRIGHTNESS_STEP,
-                 /*showToggle=*/!slideSwitchOwnsLight());
+                 /*showToggle=*/true);
     if (Frontlight.hasColorTemperature()) {
       addSliderRow(screen, tr(STR_WARMTH), warmth, ACTION_WARMTH, ACTION_WARMTH_STEP, /*showToggle=*/false);
     }
     screen.spacer(theme.spaceSm);
   }
 
-  // Quick-setting tiles. Two columns of finger-sized cards; a tile whose
-  // setting is currently on draws filled (StateChecked -> selected style).
-  // Touch boards only — the tiles are touch targets.
+  // 5 nút chức năng (1 hàng x 5 cột) chỉ có Icon ở giữa, gọn gàng, tinh tế
   if (mappedInput.hasTouch()) {
-    static constexpr StrId kOrientNames[4] = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW,
-                                              StrId::STR_ORIENTATION_INVERTED, StrId::STR_LANDSCAPE_CCW};
-    // The orientation tile is labelled with just the current mode ("Portrait"):
-    // the mode names say what the tile is about on their own.
-    const char* orientLabel = I18N.get(kOrientNames[SETTINGS.orientation % 4]);
-    // "Touch On" / "Touch Off", from the existing state strings: the label
-    // names the current state of the touch-reader-controls setting.
     const bool touchOn = SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF;
-    char touchLabel[48];
-    snprintf(touchLabel, sizeof(touchLabel), "%s %s", tr(STR_TOUCH_TOGGLE),
-             I18N.get(touchOn ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF));
 
-    const char* labels[kTileCount] = {tr(STR_NIGHT_MODE), tr(STR_FORCE_REFRESH), orientLabel, touchLabel};
-    const fui::State states[kTileCount] = {SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal,
-                                           fui::StateNormal, fui::StateNormal,
-                                           // Filled when touch reader controls are OFF — the non-default,
-                                           // attention-worthy state.
-                                           touchOn ? fui::StateNormal : fui::StateChecked};
+    const fui::BitmapRef icons[kTileCount] = {
+        fui::bitmapFromIcon(icon_moon_filled_24),
+        fui::bitmapFromIcon(icon_refresh_cw_24),
+        fui::bitmapFromIcon(icon_pointer_24),
+        fui::bitmapFromIcon(icon_book_open_24),
+        fui::bitmapFromIcon(icon_upload_24)};
+    const fui::State states[kTileCount] = {
+        SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal,
+        fui::StateNormal,
+        touchOn ? fui::StateNormal : fui::StateChecked,
+        fui::StateNormal,
+        fui::StateNormal};
 
     for (int id = 0; id < kTileCount; ++id) {
-      gridItems[id].label = labels[id];
+      gridItems[id].label = nullptr;  // Chỉ để mỗi icon thôi, căn ra giữa!
+      gridItems[id].icon = icons[id];
       gridItems[id].value = static_cast<int16_t>(id);
       gridItems[id].state = states[id];
     }
@@ -409,6 +434,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     gridProps.action = ACTION_TILE;
     gridProps.tileHeight = kTileHeight;
     gridProps.gap = kTileGap;
+    gridProps.columns = kTileCols;
     screen.tileGrid(gridProps);
   }
 }

@@ -24,26 +24,59 @@ class MappedInputManager;
 // clears the screen: the page stays visible around the chrome.
 class ReaderToolbarUi : public UiAppHost {
  public:
-  enum class Event { None = 0, Dismiss = 1, Tool = 2, PrevChapter = 3, NextChapter = 4, Scrub = 5, Row = 6 };
+  enum class Event {
+    None = 0,
+    Dismiss = 1,
+    Tool = 2,
+    PrevChapter = 3,
+    NextChapter = 4,
+    Scrub = 5,
+    Row = 6,
+    FontSizeDec = 7,
+    FontSizeInc = 8,
+    Spacing = 9,
+    Align = 10,
+    FontPicker = 11,
+    GoHome = 12,
+    BookStats = 13,
+    NightMode = 14,
+    FrontlightControl = 15,
+    TocPagePrev = 16,
+    TocPageNext = 17,
+  };
 
   struct Model {
-    bool panel = false;  // false = toolbar, true = a Contents/Text/More panel
-    // Toolbar
+    bool panel = false;  // false = drawer, true = standard panel fallback
+    int activeTab = 0;   // 0: Chữ & Bố cục, 1: % Tiến độ, 2: ≡ Mục lục, 3: ⌂ Tiện ích
+
+    // Tab 0 (Chữ & Bố cục)
+    int fontSize = 14;
+    int lineSpacing = 0;   // 0: Gọn, 1: Vừa, 2: Rộng
+    int alignment = 0;     // 0: Căn đều, 1: Căn trái
+    const char* fontName = nullptr;
+
+    // Tab 1 (% Tiến độ) & Header
     const char* chapterTitle = nullptr;
     const char* pageInfo = nullptr;  // "12/40   51%"
-    int progressPermille = 0;        // 0..1000 book progress (scrub handle)
-    // Panel
+    int progressPermille = 0;        // 0..1000
+
+    // Tab 2 (Mục lục) & Panel fallback
     const char* panelTitle = nullptr;
     int itemCount = 0;
-    int selectedIndex = -1;  // row the buttons' cursor sits on; -1 = none shown
+    int selectedIndex = -1;  // row cursor sits on; -1 = none shown
+    int tocPage = 0;
+    int tocTotalPages = 1;
     std::function<std::string(int)> rowText;
     std::function<std::string(int)> rowValue;
     void (*rowCheckbox)(void* ctx, int index, freeink::ui::ListItem& item) = nullptr;
     void* rowCheckboxContext = nullptr;
-    // Tile row: the tool in focus (toolbar) / the open panel (panel). 0..2.
+
+    // Tab 3 (Tiện ích)
+    bool isNightMode = false;
+    bool hasFrontlight = false;
+
+    // Tile row (fallback)
     int activeTool = 0;
-    // Button boards keep the theme's denser list row height (as every other
-    // list does there); touch boards use FreeInkUI's finger-sized rows.
     bool denseRows = false;
   };
 
@@ -79,6 +112,12 @@ class ReaderToolbarUi : public UiAppHost {
  private:
   static void screenFn(UiScreen& screen, void* user);
   static void onAction(const freeink::ui::ActionEvent& event, void* user);
+  void buildDrawer(UiScreen& screen);
+  void buildDrawerTabBar(UiScreen& screen, const freeink::ui::Rect& barRect);
+  void buildDrawerTab0(UiScreen& screen, const freeink::ui::Rect& contentRect);
+  void buildDrawerTab1(UiScreen& screen, const freeink::ui::Rect& contentRect);
+  void buildDrawerTab2(UiScreen& screen, const freeink::ui::Rect& contentRect);
+  void buildDrawerTab3(UiScreen& screen, const freeink::ui::Rect& contentRect);
   void buildToolbar(UiScreen& screen);
   void buildPanel(UiScreen& screen);
   void buildToolRow(UiScreen& screen, freeink::ui::LayoutAnchor anchor, int16_t sideInset);

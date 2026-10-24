@@ -200,6 +200,9 @@ void FileBrowserActivity::prewarmRowGlyphs(const int start) {
 }
 
 void FileBrowserActivity::onEnter() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
   UiListActivity::onEnter();
 
   fileNameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
@@ -431,8 +434,8 @@ void FileBrowserActivity::deleteSelected() {
     requestUpdate(true);
   };
 
-  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_ITEM_CONFIRM),
-                                                              utf8ComposeNfc(entry));
+  const std::string heading = tr(STR_DELETE) + std::string("? ");
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, utf8ComposeNfc(entry));
   if (!confirmation) {
     LOG_ERR("FileBrowser", "OOM: delete confirmation");
     return;

@@ -26,6 +26,10 @@
 #include "components/icons/headerIcons.h"
 #include "fontIds.h"
 
+freeink::ui::BitmapRef BaseTheme::checkboxIcon(const bool checked) {
+  return freeink::ui::bitmapFromIcon(checked ? icon_checkbox_on_32 : icon_checkbox_off_32);
+}
+
 void BaseTheme::setCheckboxRow(freeink::ui::ListItem& item, const bool checked) {
   item.value = nullptr;
   item.toggle = true;
@@ -56,17 +60,9 @@ void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int 
 }  // namespace
 
 void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
-  // Top line
-  renderer.drawLine(x + 1, y, x + battWidth - 3, y);
-  // Bottom line
-  renderer.drawLine(x + 1, y + rectHeight - 1, x + battWidth - 3, y + rectHeight - 1);
-  // Left line
-  renderer.drawLine(x, y + 1, x, y + rectHeight - 2);
-  // Battery end
-  renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rectHeight - 2);
-  renderer.drawPixel(x + battWidth - 1, y + 3);
-  renderer.drawPixel(x + battWidth - 1, y + rectHeight - 4);
-  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rectHeight - 5);
+  // Rounded rectangle outline bo nhẹ thanh lịch
+  constexpr int radius = 4;
+  renderer.drawRoundedRect(x, y, battWidth, rectHeight, 1, radius, true);
 }
 
 void BaseTheme::drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY) {
@@ -84,43 +80,47 @@ void BaseTheme::drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX,
 void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const {
   const bool charging = gpio.isUsbConnected();
 
-  const int maxFillWidth = rect.width - 5;
-  const int fillHeight = rect.height - 4;
+  const int innerX = rect.x + 3;
+  const int innerY = rect.y + 3;
+  const int maxFillWidth = rect.width - 6;
+  const int fillHeight = rect.height - 6;
   if (maxFillWidth <= 0 || fillHeight <= 0) {
     return;
   }
-  // +1 to round up so we always fill at least one pixel
-  int filledWidth = percentage * maxFillWidth / 100 + 1;
+  int filledWidth = (percentage * maxFillWidth + 50) / 100;
+  if (filledWidth < 2 && percentage > 0) {
+    filledWidth = 2;
+  }
   if (filledWidth > maxFillWidth) {
     filledWidth = maxFillWidth;
   }
 
   // When charging, ensure minimum fill so lightning bolt is fully visible
-  constexpr int minFillForBolt = 8;
+  constexpr int minFillForBolt = 10;
   if (charging && filledWidth < minFillForBolt) {
     filledWidth = std::min(minFillForBolt, maxFillWidth);
   }
 
-  renderer.fillRect(rect.x + 2, rect.y + 2, filledWidth, fillHeight);
+  constexpr int innerRadius = 2;
+  if (filledWidth >= maxFillWidth) {
+    renderer.fillRoundedRect(innerX, innerY, filledWidth, fillHeight, innerRadius, Color::Black);
+  } else if (filledWidth > 0) {
+    const int capW = std::min(innerRadius, filledWidth);
+    renderer.fillRoundedRect(innerX, innerY, capW * 2, fillHeight, innerRadius, Color::Black);
+    if (filledWidth > capW) {
+      renderer.fillRect(innerX + capW, innerY, filledWidth - capW, fillHeight, true);
+    }
+  }
 
   if (charging) {
-    drawBatteryLightningBolt(renderer, rect.x + 4, rect.y + 2);
+    drawBatteryLightningBolt(renderer, rect.x + (rect.width - 6) / 2, rect.y + (rect.height - 8) / 2);
   }
 }
 
 void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  // Center the icon on the digits' ink, which sits a font-dependent distance
-  // below the text line's top (the font scales with uiScale).
-  int y = rect.y + 6;
-  const auto fontIt = renderer.getFontMap().find(SMALL_FONT_ID);
-  if (fontIt != renderer.getFontMap().end()) {
-    if (const auto glyph = fontIt->second.getGlyph('0', EpdFontFamily::REGULAR)) {
-      const int inkTop = renderer.getFontAscenderSize(SMALL_FONT_ID) - static_cast<int>(glyph->top);
-      y = rect.y + inkTop + (static_cast<int>(glyph->height) - rect.height) / 2;
-    }
-  }
+  const int y = rect.y + 3;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
@@ -359,7 +359,7 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
   // buttons drop by that amount to align with the glyphs the user sees.
   // Buttons keep a standard square (a band-8 button dwarfs its 24px icon);
   // the boxes are invisible and minTouchSize pads the tap target.
-  constexpr int16_t headerButtonSize = 48;
+  constexpr int16_t headerButtonSize = 36;
   const int16_t bandHeight = static_cast<int16_t>(metrics.headerHeight);
   const int16_t strip = static_cast<int16_t>(metrics.batteryBarHeight);
   const int titleFontId = uiScaleSpec().titleFontId;
@@ -367,7 +367,9 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
       static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
   props.leadingSize = headerButtonSize;
   props.trailingSize = headerButtonSize;
+  props.leadingRadius = 0;
   props.leadingStyles = freeink::ui::plainStyles(freeink::ui::Paint::solid(freeink::ui::Color::Black));
+  props.trailingStyles = freeink::ui::plainStyles(freeink::ui::Paint::solid(freeink::ui::Color::Black));
   props.actionOffsetY = static_cast<int16_t>(strip + (bandHeight - strip - headerButtonSize) / 2 - 4 + opticalDrop);
   // Shift the title's band-centered box down by half the strip: its center
   // lands on the below-strip region's midline with the buttons.
@@ -450,6 +452,7 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   if (showBackButton) {
     props.leadingIcon = fui::bitmapFromIcon(icon_header_back_32);
     props.leadingAction = 1;  // any non-NO_ACTION id: paints the button, routing is via HeaderBackTapTarget
+    props.leftReserve = 8;
     HeaderBackTapTarget::set(band.x + 4, band.y + 4 + props.actionOffsetY, backBtnSize, backBtnSize);
   } else {
     HeaderBackTapTarget::clear();
@@ -819,12 +822,10 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
-  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4 +
-               BoardConfig::ACTIVE.statusBarOffsetY;
+  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
 
   // The side clusters sit in the bottom corners: clear the panel's rounded corners too.
-  const int corner = BoardConfig::ACTIVE.bottomCornerRadius != 0 ? BoardConfig::ACTIVE.bottomCornerRadius
-                                                                 : BoardConfig::ACTIVE.cornerRadius;
+  const int corner = BoardConfig::ACTIVE.cornerRadius;
   const int leftClusterX = metrics.statusBarHorizontalMargin + std::max(orientedMarginLeft, corner) + 1;
   const int rightClusterX =
       renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - std::max(orientedMarginRight, corner);
@@ -989,11 +990,11 @@ void BaseTheme::drawSelectionHandle(const GfxRenderer& renderer, const Rect rect
   renderer.fillRect(left ? rect.x + radius : rect.x, rect.y, radius, radius);
 }
 
-void BaseTheme::drawSelectionActions(const GfxRenderer& renderer, const Rect rect, const int count) {
+void BaseTheme::drawSelectionActions(const GfxRenderer& renderer, const Rect rect) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const char* labels[] = {tr(STR_LOOKUP), tr(STR_CLIP), tr(STR_BOOKMARK_OPTION)};
-  for (int i = 0; i < count; ++i) {
-    const Rect button = selectionGeometry::button(rect, i, metrics.menuSpacing, count);
+  for (int i = 0; i < 3; ++i) {
+    const Rect button = selectionGeometry::button(rect, i, metrics.menuSpacing);
     renderer.fillRoundedRect(button.x, button.y, button.width, button.height, metrics.controlRadius, Color::White);
     renderer.drawRoundedRect(button.x, button.y, button.width, button.height, 1, metrics.controlRadius, true);
     UITheme::drawCenteredWrappedText(renderer, button, uiScaleSpec().smallFontId, labels[i], 2, true,

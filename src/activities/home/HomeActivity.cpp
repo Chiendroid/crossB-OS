@@ -23,16 +23,22 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "components/BottomDockBar.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Library, File transfer, Settings
+  if (coverGridUi) {
+    int count = 4;  // 4 tabs: GẦN ĐÂY, THƯ VIỆN, ỨNG DỤNG, CÀI ĐẶT
+    if (!recentBooks.empty()) {
+      count += recentBooks.size();
+    }
+    return count;
+  }
+
+  int count = 5;  // File Browser, Library, Plugins, File transfer, Settings
   if (!recentBooks.empty()) {
     count += recentBooks.size();
-  }
-  if (hasLibrarySlot()) {
-    count++;
   }
   return count;
 }
@@ -228,12 +234,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
 
   hasOpdsServers = OPDS_STORE.hasServers();
-  // Plugin System is the global opt-in. Once enabled, expose the Plugins entry
-  // even when no SD plugins are installed yet so Plugin Hub can be installed
-  // from inside the Plugins screen (or users can sideload plugins manually).
-  hasPlugins = SETTINGS.pluginsEnabled != 0;
+  // Expose the Plugins entry for built-in apps and installed SD plugins
+  hasPlugins = true;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -243,14 +250,23 @@ void HomeActivity::onEnter() {
   }
   loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
   hasContinueReading = !recentBooks.empty();
+  // Ở các theme khác ngoài theme mặc định, thanh dock mặc định luôn được ẩn thành vạch để tránh đè lên menu
+  dockCollapsed = !coverGridUi ? true : BottomDockBar::isGlobalCollapsed();
+  if (!dockCollapsed) {
+    BottomDockBar::resetAutoHideTimer();
+  }
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
+    coverGridUi->setDockCollapsed(dockCollapsed);
     coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+  selectorIndex =
+      initialMenuItem == HomeMenuItem::NONE
+          ? 0
+          : base + menuItemToIndex(initialMenuItem, hasLibrarySlot(), coverGridUi != nullptr);
 
   // Trigger first update
   requestUpdate();
@@ -302,15 +318,46 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+  // Với theme mặc định (coverGridUi), dock có thể tự ẩn sau 5s
+  // Với các theme ngoài mặc định, dock luôn luôn ẩn và không thể mở lên khi ở trang chủ
+  if (coverGridUi) {
+    if (BottomDockBar::checkAutoHide(dockCollapsed, false)) {
+      coverGridUi->setDockCollapsed(dockCollapsed);
+      requestUpdate();
+    }
+  } else {
+    dockCollapsed = true;
+  }
+
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   auto activateSelection = [this] {
     if (selectorIndex < recentBooks.size()) {
-      onRecentBookSelected(recentBooks[selectorIndex].path);
+      onSelectBook(recentBooks[selectorIndex].path);
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
+    if (coverGridUi) {
+      switch (menuIndex) {
+        case 0:  // Tab 0: GẦN ĐÂY
+          requestUpdate();
+          break;
+        case 1:  // Tab 1: THƯ VIỆN
+          onLibraryOpen();
+          break;
+        case 2:  // Tab 2: ỨNG DỤNG
+          onPluginsOpen();
+          break;
+        case 3:  // Tab 3: CÀI ĐẶT
+          onSettingsOpen();
+          break;
+        default:
+          break;
+      }
+      return;
+    }
+
     switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
@@ -318,8 +365,9 @@ void HomeActivity::loop() {
       case HomeMenuItem::LIBRARY:
         onLibraryOpen();
         break;
-      case HomeMenuItem::OPDS_BROWSER:  // the library slot
-        hasPlugins ? onPluginsOpen() : onOpdsBrowserOpen();
+      case HomeMenuItem::PLUGINS:
+      case HomeMenuItem::OPDS_BROWSER:
+        onPluginsOpen();
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
@@ -346,7 +394,30 @@ void HomeActivity::loop() {
     });
   }
 
-  const auto swipe = mappedInput.wasSwipe();
+  // Chỉ theme mặc định (coverGridUi) mới cho phép chạm/vuốt để mở dock tại trang chủ.
+  // Các theme ngoài mặc định: dock luôn ẩn thành vạch và không thể mở dock lên khi ở trang chủ.
+  if (coverGridUi) {
+    bool needUpdate = false;
+    if (BottomDockBar::handleTouch(mappedInput, BottomDockBar::Tab::Home, dockCollapsed, needUpdate)) {
+      if (needUpdate) {
+        coverGridUi->setDockCollapsed(dockCollapsed);
+        requestUpdate();
+      }
+      return;
+    }
+
+    int startX = 0, startY = 0;
+    const auto swipe = mappedInput.wasSwipe(&startX, &startY);
+    if (BottomDockBar::handleSwipe(swipe, dockCollapsed, startY)) {
+      coverGridUi->setDockCollapsed(dockCollapsed);
+      requestUpdate();
+      return;
+    }
+  }
+
+  int startX = 0, startY = 0;
+  const auto swipe = mappedInput.wasSwipe(&startX, &startY);
+
   if (swipe == MappedInputManager::SwipeDir::Up) {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
     requestUpdate();
@@ -362,7 +433,7 @@ void HomeActivity::loop() {
   // book directly (recentBooks is most-recent-first and already pruned of
   // files missing from the SD card).
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) && hasContinueReading && !recentBooks.empty()) {
-    onRecentBookSelected(recentBooks[0].path);
+    onSelectBook(recentBooks[0].path);
     return;
   }
 
@@ -473,6 +544,7 @@ void HomeActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   if (coverGridUi) {
+    coverGridUi->setDockCollapsed(dockCollapsed);
     coverGridUi->setSelection(selectorIndex);
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
@@ -501,7 +573,7 @@ void HomeActivity::render(RenderLock&&) {
     }
     return;
   }
-  bool bufferRestored = coverRendered && coverBufferStored && restoreCoverBuffer();
+  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   // Band spans topPadding..homeTopPadding: the cover tile starts at the fixed
   // homeTopPadding, so the height must shrink by topPadding or the band (and a
@@ -524,14 +596,9 @@ void HomeActivity::render(RenderLock&&) {
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
+  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_PLUGINS), tr(STR_FILE_TRANSFER),
                                         tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
-
-  if (hasLibrarySlot()) {
-    menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Plugins);
-  }
+  std::vector<UIIcon> menuIcons = {Folder, Library, Plugins, Transfer, Settings};
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
@@ -539,11 +606,14 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.insert(menuIcons.begin(), Book);
   }
 
+  const int16_t dockReserved = static_cast<int16_t>(BottomDockBar::getBottomReservedHeight(dockCollapsed));
+  BottomDockBar::render(renderer, BottomDockBar::Tab::Home, dockCollapsed);
+
   GUI.drawButtonMenu(
       renderer,
       Rect{content.x, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, content.width,
            pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
-                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
+                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight + dockReserved)},
       static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
@@ -565,7 +635,7 @@ void HomeActivity::render(RenderLock&&) {
   }
 }
 
-void HomeActivity::onRecentBookSelected(const std::string& path) { activityManager.goToReader(path); }
+void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 

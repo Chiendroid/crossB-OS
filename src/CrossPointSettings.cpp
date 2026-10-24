@@ -67,10 +67,10 @@ uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue)
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   const CrossPointSettings& s = *this;
 
-  auto visit = [&](const SettingInfo& info) {
-    if (!info.key) return;
+  for (const auto& info : getBaseSettingsList()) {
+    if (!info.key) continue;
     // Dynamic entries (KOReader etc.) are stored in their own files — skip.
-    if (!info.valuePtr && !info.stringOffset) return;
+    if (!info.valuePtr && !info.stringOffset) continue;
 
     if (info.stringOffset) {
       const char* strPtr = (const char*)&s + info.stringOffset;
@@ -84,8 +84,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     } else {
       doc[info.key] = s.*(info.valuePtr);
     }
-  };
-  forEachBaseSetting(visit);
+  }
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = frontButtonBack;
@@ -100,6 +99,15 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
   }
+  if (deviceName[0] != '\0') {
+    doc["deviceName"] = deviceName;
+  }
+  if (nearbyReceiveFolder[0] != '\0') {
+    doc["nearbyReceiveFolder"] = nearbyReceiveFolder;
+  }
+  doc["readingUnderlineStyle"] = readingUnderlineStyle;
+  doc["readingTimerMinutes"] = readingTimerMinutes;
+  doc["readingTimerPerBook"] = readingTimerPerBook;
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -128,10 +136,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
 
-  auto visit = [&](const SettingInfo& info) {
-    if (!info.key) return;
+  for (const auto& info : getBaseSettingsList()) {
+    if (!info.key) continue;
     // Dynamic entries (KOReader etc.) are stored in their own files — skip.
-    if (!info.valuePtr && !info.stringOffset) return;
+    if (!info.valuePtr && !info.stringOffset) continue;
 
     if (info.stringOffset) {
       // destPtr starts out holding the struct-initializer default; it stays that
@@ -141,7 +149,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
         LOG_ERR("CPS", "Misconfigured SettingInfo: stringMaxLen is 0 for key '%s'", info.key);
         destPtr[0] = '\0';
         needsResave = true;
-        return;
+        continue;
       }
 
       bool loaded = false;
@@ -187,8 +195,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       }
       s.*(info.valuePtr) = v;
     }
-  };
-  forEachBaseSetting(visit);
+  }
 
   // Plugin System did not exist in older settings files. Preserve the behavior
   // of users who already have SD plugins installed, while keeping the new
@@ -268,6 +275,18 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(sdFontFamilyName, sfn, sizeof(sdFontFamilyName) - 1);
   sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
+
+  const char* dn = doc["deviceName"] | "";
+  strncpy(deviceName, dn, sizeof(deviceName) - 1);
+  deviceName[sizeof(deviceName) - 1] = '\0';
+
+  const char* nrf = doc["nearbyReceiveFolder"] | "";
+  strncpy(nearbyReceiveFolder, nrf, sizeof(nearbyReceiveFolder) - 1);
+  nearbyReceiveFolder[sizeof(nearbyReceiveFolder) - 1] = '\0';
+
+  readingUnderlineStyle = clamp(doc["readingUnderlineStyle"] | (uint8_t)UNDERLINE_OFF, (uint8_t)UNDERLINE_STYLE_COUNT, (uint8_t)UNDERLINE_OFF);
+  readingTimerMinutes = doc["readingTimerMinutes"] | (uint8_t)0;
+  readingTimerPerBook = doc["readingTimerPerBook"] | (uint8_t)0;
   if (sdFontFamilyName[0] == '\0') {
     switch (storedFontFamily) {
       case LEGACY_NOTOSERIF:
@@ -341,9 +360,11 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // One scale for all SD card fonts, whatever their format: .cpfont and vector
-  // fonts both take their line height from FreeType's size metrics. Same values
-  // as the former built-in Noto Serif; Normal keeps the font's own line height.
+  // SD card and vector fonts get a wider scale than the built-ins: their
+  // faces carry their own (often generous) natural line height, so the old
+  // Bookerly-tuned 1.1/1.2 steps were visually near-indistinguishable. At
+  // 12pt in portrait (~760px viewport) this scale spans ~26/24/19/15 lines
+  // per page — each step reads as a clearly different density.
   if (sdFontFamilyName[0] != '\0') {
     switch (lineSpacing) {
       case TIGHT:
@@ -352,9 +373,9 @@ float CrossPointSettings::getReaderLineCompression() const {
       default:
         return 1.0f;
       case WIDE:
-        return 1.1f;
+        return 1.3f;
       case EXTRA_WIDE:
-        return 1.2f;
+        return 1.6f;
     }
   }
 
@@ -430,4 +451,18 @@ int CrossPointSettings::getReaderFontId() const {
     default:
       return NOTOSANS_14_FONT_ID;
   }
+}
+
+const char* CrossPointSettings::getDefaultDeviceName() {
+#if (defined(FREEINK_DEVICE_X4CLASSIC) && FREEINK_DEVICE_X4CLASSIC) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
+  return "X4 Classic";
+#endif
+  return "CrossPoint X4 Pro";
+}
+
+const char* CrossPointSettings::getEffectiveDeviceName() const {
+  if (deviceName[0] != '\0' && strlen(deviceName) >= MIN_DEVICE_NAME_LENGTH) {
+    return deviceName;
+  }
+  return getDefaultDeviceName();
 }

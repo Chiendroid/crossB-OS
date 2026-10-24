@@ -12,6 +12,7 @@
 #include "HapticFeedback.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
+#include "components/UITheme.h"
 
 namespace ReaderUtils {
 
@@ -55,6 +56,21 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
     default:
       break;
   }
+}
+
+inline bool readerDarkModeEnabled() { return false; }
+inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 : 0xFF; }
+inline bool readerForegroundBlack() { return true; }
+
+inline std::string fontSizePointLabel(const uint8_t size) {
+  return std::to_string(size) + "pt";
+}
+
+constexpr int8_t TOP_STATUS_BAR_TEXT_PADDING = 0;
+
+inline int getTopStatusBarReservedHeight(const GfxRenderer& renderer) {
+  (void)renderer;
+  return 0;
 }
 
 struct PageTurnResult {
@@ -147,6 +163,7 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
 // menu stays reachable through the key's long-press function.
 inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager& input) {
   if (!input.hasTouch()) return false;
+  if (!SETTINGS.touchReaderControls) return false;
   if (SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
   int x = 0;
   int y = 0;

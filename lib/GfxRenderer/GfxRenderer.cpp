@@ -236,6 +236,9 @@ bool GfxRenderer::restoreFrameBufferAfterBuild() {
   buildscratch::reclaim();
   display.returnFrameBufferStorage();  // cannot fail: the allocation was never freed
   frameBuffer = display.getFrameBuffer();
+  if (frameBuffer) {
+    memset(frameBuffer, 0xFF, frameBufferSize);
+  }
   return frameBuffer != nullptr;
 }
 

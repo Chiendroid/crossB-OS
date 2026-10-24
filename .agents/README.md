@@ -27,6 +27,8 @@ home rather than restoring `.skills/` or duplicating the root policy.
 - `testing-debugging.md`: build, formatting, CI, serial, crash, and verification procedures
 - `git-workflow.md`: repository context, branches, commits, and publication controls
 - `generated-files-cache.md`: generated sources, i18n, local artifacts, and cache formats
+- `../docs/AGENT_COLLABORATION_GUIDE.md`: agent onboarding, architecture layers, features, and workflows
+- `../docs/HARDWARE_X4PRO.md`: Xteink X4 Pro pinout, PWM frontlight, and deep-sleep leakage prevention
 
 ## Mandatory firmware review
 

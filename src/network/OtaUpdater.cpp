@@ -19,7 +19,7 @@
 #include "FirmwareFlasher.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/Chiendroid/crossB-OS/releases/latest";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
@@ -54,7 +54,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
       releaseParser.feed(reinterpret_cast<const char*>(data + offset), 1);
       offset++;
       if (releaseParser.foundTag()) {
-        snprintf(assetName, sizeof(assetName), "crosspoint-%s%s.bin", releaseParser.getTagName(), assetSuffix);
+        snprintf(assetName, sizeof(assetName), "crossB-OS-%s%s.bin", releaseParser.getTagName(), assetSuffix);
         releaseParser.setFirmwareAssetName(assetName);
         assetNameSet = true;
       }

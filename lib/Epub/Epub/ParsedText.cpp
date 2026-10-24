@@ -196,40 +196,35 @@ std::vector<Hyphenator::BreakInfo> hangulLineEndBreaks(const std::string& word) 
 }
 
 std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
+  struct CodepointBoundary {
+    uint32_t cp;
+    size_t endOffset;
+  };
+
+  std::vector<CodepointBoundary> codepoints;
+  codepoints.reserve(text.size());
+  bool hasCjkBreakable = false;
+
   const auto* ptr = reinterpret_cast<const unsigned char*>(text.c_str());
   const auto* const start = ptr;
-  uint32_t previous = utf8NextCodepoint(&ptr);
-  if (previous == 0) return {};
-  bool hasCjkBreakable = utf8IsCjkBreakable(previous);
-  // Count first so words without accepted boundaries need no storage.
-  size_t boundaryCount = 0;
-
   while (*ptr) {
-    const uint32_t current = utf8NextCodepoint(&ptr);
-    if (current == 0) break;
-    if (utf8IsCjkBreakable(current)) {
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    if (cp == 0) break;
+    if (utf8IsCjkBreakable(cp)) {
       hasCjkBreakable = true;
     }
-    if (hasCjkBreakOpportunityBetween(previous, current)) {
-      ++boundaryCount;
-    }
-    previous = current;
+    codepoints.push_back({cp, static_cast<size_t>(ptr - start)});
   }
 
-  if (!hasCjkBreakable || boundaryCount == 0) return {};
+  if (!hasCjkBreakable || codepoints.size() < 2) return {};
 
   std::vector<size_t> allowedOffsets;
-  allowedOffsets.reserve(boundaryCount);
-  ptr = start;
-  previous = utf8NextCodepoint(&ptr);
-  while (*ptr) {
-    const size_t offset = static_cast<size_t>(ptr - start);
-    const uint32_t current = utf8NextCodepoint(&ptr);
-    if (current == 0) break;
-    if (hasCjkBreakOpportunityBetween(previous, current)) {
-      allowedOffsets.push_back(offset);
-    }
-    previous = current;
+  allowedOffsets.reserve(codepoints.size() - 1);
+  for (size_t i = 0; i + 1 < codepoints.size(); ++i) {
+    const uint32_t current = codepoints[i].cp;
+    const uint32_t next = codepoints[i + 1].cp;
+    if (!hasCjkBreakOpportunityBetween(current, next)) continue;
+    allowedOffsets.push_back(codepoints[i].endOffset);
   }
   return allowedOffsets;
 }
@@ -882,9 +877,8 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                                        const bool includeLastLine, const int8_t characterSpacing,
-                                       const uint8_t wordSpacingPercent, const size_t maxLines,
-                                       const bool* stopRequested) {
-  if (words.empty() || (stopRequested && *stopRequested)) {
+                                       const uint8_t wordSpacingPercent, const size_t maxLines) {
+  if (words.empty()) {
     return;
   }
   // Stamped here rather than at construction: the parser replaces blockStyle as CSS resolves.
@@ -972,7 +966,6 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   const bool endIsKnown = includeLastLine && lineCount == lineBreakIndices.size();
   for (size_t i = 0; i < lineCount; ++i) {
-    if (stopRequested && *stopRequested) return;
     linesAfterCurrent = endIsKnown ? static_cast<int>(lineCount - 1 - i) : -1;
     extractLine(i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, lineBreakIndices, processLine, renderer,
                 fontId);
@@ -1568,13 +1561,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                              const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                              const GfxRenderer& renderer, const int fontId) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
-  size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
-  // A no-break space carried across a soft wrap must not indent the next line.
-  if (breakIndex > 0 || paragraphStartEmitted) {
-    while (lastBreakAt + 1 < lineBreak && continuesVec[lastBreakAt] && wordAt(lastBreakAt) == " ") {
-      ++lastBreakAt;
-    }
-  }
+  const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
   const size_t lineWordCount = lineBreak - lastBreakAt;
   const uint32_t lineVisibleOffset = visibleOffsetAt(lastBreakAt);
 
@@ -1618,9 +1605,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineWordWidthSum += wordWidths[lastBreakAt + wordIdx];
     if (wordIdx == 0) continue;
     const size_t boundaryIdx = lastBreakAt + wordIdx;
-    const bool isStretchableSpace =
-        lineWords[wordIdx] == " " && wordIdx + 1 < lineWordCount && continuesVec[boundaryIdx + 1];
-    if (TokenBoundary::isJustifiableGap(continuesVec[boundaryIdx], isStretchableSpace)) {
+    const bool isSpaceToken = lineWords[wordIdx] == " ";
+    if (TokenBoundary::isJustifiableGap(continuesVec[boundaryIdx], noSpaceBeforeVec[boundaryIdx], isSpaceToken)) {
       actualGapCount++;
     }
     if (continuesVec[boundaryIdx]) {
@@ -1725,8 +1711,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                                                 reorderedStylesScratch[wordIdx - 1]),
                        wordSpacingPercent);
       } else if (wordIdx > 0 && reorderedContinuesScratch[wordIdx]) {
-        if (reorderedWordsScratch[wordIdx] == " " && wordIdx + 1 < reorderedWidthsScratch.size() &&
-            reorderedContinuesScratch[wordIdx + 1]) {
+        if (reorderedWordsScratch[wordIdx] == " ") {
           reorderedGapCount++;
         }
         reorderedNaturalGaps += renderer.getKerning(fontId, lastCodepoint(reorderedWordsScratch[wordIdx - 1]),

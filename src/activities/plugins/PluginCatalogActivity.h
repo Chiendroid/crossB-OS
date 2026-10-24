@@ -195,17 +195,25 @@ class PluginCatalogActivity final : public CatalogActivity {
   int listCount() const override { return rowCount(); }
   // Row dispatch: pager rows page, picker rows pick, item rows open/download.
   void activateIndex(int index) override;
+  void onRowLongPress(int index) override;
   void render(RenderLock&& lock) override;
   void buildScreen(UiScreen& screen) override;
   bool handleCustomInput() override;
   void onBackButton() override;
   void drawFooter() override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
+
+  bool dockCollapsed = false;
+  OptionPopup optionPopup;
+  void openInstalledPlugin(const PluginRef& plugin);
+  void promptDeletePlugin(const PluginRef& plugin);
   void rebuildRowItems();
   // Items (and the interaction table indexing them) are about to be replaced:
   // stop routing and mark the row buffer for rebuild.
   void releaseRows();
   void buildAuthScreen(UiScreen& screen);
   void buildBrowsingScreen(UiScreen& screen);
+  void buildAppGridScreen(UiScreen& screen);
   // Browse url/body with the selected browse list's overrides applied.
   const std::string& activeBrowseUrl() const;
   const std::string& activeBrowseBody() const;

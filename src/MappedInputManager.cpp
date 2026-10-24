@@ -10,7 +10,9 @@
 #include <cstdlib>
 
 #include "CrossPointSettings.h"
+#include "DeviceCapabilities.h"
 #include "components/HeaderBackTapTarget.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 
 namespace fui = freeink::ui;
@@ -32,23 +34,6 @@ void MappedInputManager::update(const bool deferHomeButtonAction) const {
       HalHaptics::longPress(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, SETTINGS.hapticIntensity);
     } else if (homeAction != HomeButtonAction::Ignore) {
       HalHaptics::feedback(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, true, SETTINGS.hapticIntensity);
-    }
-  }
-  // Touch boards without a home key: a short power click can carry a reader
-  // shortcut (see SHORT_PWRBTN).
-  if (homeAction == HomeButtonAction::Ignore && mapButton(Button::Power, &HalGPIO::wasReleased)) {
-    switch (SETTINGS.shortPwrBtn) {
-      case CrossPointSettings::PWR_BOOKMARK:
-        homeAction = HomeButtonAction::Bookmark;
-        break;
-      case CrossPointSettings::PWR_SYNC:
-        homeAction = HomeButtonAction::Sync;
-        break;
-      case CrossPointSettings::PWR_READER_MENU:
-        homeAction = HomeButtonAction::ReaderMenu;
-        break;
-      default:
-        break;
     }
   }
   if (deferHomeButtonAction) {
@@ -178,6 +163,22 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   return false;
 }
 
+MappedInputManager::Button MappedInputManager::menuButton(const Button direction) const {
+  if (!deviceUsesHorizontalSideButtonsForMenus(gpio)) return direction;
+  switch (direction) {
+    case Button::Left:
+      return Button::Up;
+    case Button::Right:
+      return Button::Down;
+    case Button::Up:
+      return Button::Left;
+    case Button::Down:
+      return Button::Right;
+    default:
+      return direction;
+  }
+}
+
 namespace {
 constexpr unsigned long TOUCH_DOWN_SELECT_DELAY_MS = 90;
 constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
@@ -247,6 +248,12 @@ bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
 }
 
 bool MappedInputManager::wasScreenTouchReleased() const { return gpio.wasTouchReleased(); }
+
+bool MappedInputManager::wasTapInRect(const int x, const int y, const int width, const int height) const {
+  int tx = 0;
+  int ty = 0;
+  return wasScreenTapped(tx, ty) && tx >= x && tx < x + width && ty >= y && ty < y + height;
+}
 
 MappedInputManager::RowTouch MappedInputManager::rowTouch(int& row, const int top, const int rowStep,
                                                           const int rowCount, const int xStart, const int xEnd,
@@ -520,4 +527,16 @@ int MappedInputManager::getPressedFrontButton() const {
     return HalGPIO::BTN_RIGHT;
   }
   return -1;
+}
+
+bool MappedInputManager::wasItemTapped(int& id) const {
+  int tx = 0;
+  int ty = 0;
+  return wasScreenTapped(tx, ty) && TouchRegistry::getInstance().hitTest(tx, ty, TouchRegistry::Kind::Item, id);
+}
+
+bool MappedInputManager::wasItemTouchedDown(int& id) const {
+  int tx = 0;
+  int ty = 0;
+  return wasScreenTouchDown(tx, ty) && TouchRegistry::getInstance().hitTest(tx, ty, TouchRegistry::Kind::Item, id);
 }

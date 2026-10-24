@@ -32,22 +32,33 @@ void UITheme::reload() {
 
 bool UITheme::supportsCoverGrid() { return HalMemory::getPsramHeap().totalBytes > 0; }
 
-bool UITheme::hasCoverGridHome() { return SETTINGS.uiTheme == CrossPointSettings::COVER_GRID && supportsCoverGrid(); }
+bool UITheme::hasCoverGridHome() {
+  return (SETTINGS.uiTheme == CrossPointSettings::DEFAULT || SETTINGS.uiTheme == CrossPointSettings::COVER_GRID) &&
+         supportsCoverGrid();
+}
 
 void UITheme::drawCoverGridHome(CoverGridHomeUi& home) { home.renderUi(); }
 
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
-  if (type == CrossPointSettings::COVER_GRID && !supportsCoverGrid()) type = CrossPointSettings::LYRA;
-
   switch (type) {
+    case CrossPointSettings::UI_THEME::DEFAULT: {
+      // The cover home owns its screen-lifetime UI state; other screens retain Default styling.
+      auto theme = makeUniqueNoThrow<LyraTheme>();
+      if (!theme) {
+        LOG_ERR("UI", "OOM: Default theme");
+        return;
+      }
+      currentTheme = std::move(theme);
+      currentMetrics = &LyraMetrics::values;
+      LOG_DBG("UI", "Using Default theme");
+      break;
+    }
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
       currentTheme = std::make_unique<BaseTheme>();
       currentMetrics = &BaseMetrics::values;
       break;
-    case CrossPointSettings::UI_THEME::COVER_GRID:
     case CrossPointSettings::UI_THEME::LYRA: {
-      // The cover home owns its screen-lifetime UI state; other screens retain Lyra styling.
       auto theme = makeUniqueNoThrow<LyraTheme>();
       if (!theme) {
         LOG_ERR("UI", "OOM: Lyra theme");
@@ -128,14 +139,6 @@ Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButton
       break;
   }
   return safeArea;
-}
-
-Rect UITheme::getHeaderRect(const GfxRenderer& renderer, bool hasFrontButtonHints, bool hasSideButtonHints) {
-  const Rect safe = getScreenSafeArea(renderer, hasFrontButtonHints, hasSideButtonHints);
-  const Rect content = getContentArea(renderer);
-  const ThemeMetrics metrics = getMetrics();
-  return Rect{safe.x - content.x, safe.y - content.y + metrics.topPadding,
-              safe.width + renderer.getScreenWidth() - content.width, metrics.headerHeight};
 }
 
 std::string UITheme::getCoverThumbPath(std::string coverBmpPath, int coverHeight) {

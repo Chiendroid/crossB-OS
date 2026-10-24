@@ -178,6 +178,7 @@ void UiListActivity::loop() {
   // off-screen) and button navigation pulls the view back to it.
   const auto swipe = mappedInput.wasSwipe();
   if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    onListSwiped(swipe);
     auto& n = activeNav();
     const int delta = swipe == MappedInputManager::SwipeDir::Up ? n.inputPageRows() : -n.inputPageRows();
     LOG_DBG("LIST", "%s swipe delta=%d count=%d", name.c_str(), delta, listCount());

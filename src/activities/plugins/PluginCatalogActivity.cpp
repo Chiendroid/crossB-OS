@@ -29,8 +29,17 @@
 #include "activities/settings/PluginHubInstallActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/DetailsActivity.h"
+#include "activities/gallery/GalleryActivity.h"
+#include "activities/reader/BookStatsActivity.h"
+#include "activities/reader/GlobalReadingStats.h"
 #include "components/CatalogScreens.h"
+#include "components/BottomDockBar.h"
 #include "components/UITheme.h"
+#include "components/icons/listIcons.h"
+#include "components/icons/browserIcons.h"
+#include "components/icons/readingStatsIcons.h"
+#include "components/icons/calendarIcons.h"
+#include "components/icons/telegramIcons.h"
 #include "network/HttpDownloader.h"
 #include "network/ProtectedPaths.h"
 #include "util/BookCacheUtils.h"
@@ -431,7 +440,9 @@ std::string PluginCatalogActivity::downloadDir() const {
 
 PluginCatalogActivity::PluginCatalogActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              const bool showOpds, const bool rootMode)
-    : CatalogActivity("PluginCatalog", renderer, mappedInput), showOpds(showOpds), rootMode(rootMode) {}
+    : CatalogActivity("PluginCatalog", renderer, mappedInput, /*wantsTouchLongPress=*/true),
+      showOpds(showOpds),
+      rootMode(rootMode) {}
 
 PluginCatalogActivity::~PluginCatalogActivity() = default;
 
@@ -440,7 +451,14 @@ int PluginCatalogActivity::apiRequest(const pluginhttp::RequestSpec& req, String
 }
 
 void PluginCatalogActivity::onEnter() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
   CatalogActivity::onEnter();
+  dockCollapsed = BottomDockBar::isGlobalCollapsed();
+  if (!dockCollapsed) {
+    BottomDockBar::resetAutoHideTimer();
+  }
   enterPluginPicker();
 }
 
@@ -486,7 +504,8 @@ void PluginCatalogActivity::enterPluginPicker() {
   state = State::PLUGIN_PICKER;
   for (size_t i = 0; i < installedPlugins.size(); ++i) {
     if (installedPlugins[i].name != pickerReturnName) continue;
-    const int prefixRows = (showOpds ? 1 : 0) + (showPluginHubInstallRow ? 1 : 0);
+    const int rootApps = rootMode ? 10 : 0;
+    const int prefixRows = rootApps + (showOpds ? 1 : 0) + (showPluginHubInstallRow ? 1 : 0);
     moveSelectionTo(prefixRows + static_cast<int>(i));
     break;
   }
@@ -721,8 +740,10 @@ bool PluginCatalogActivity::nextRowVisible() const {
 }
 
 int PluginCatalogActivity::rowCount() const {
-  if (state == State::PLUGIN_PICKER)
-    return static_cast<int>(installedPlugins.size()) + (showOpds ? 1 : 0) + (showPluginHubInstallRow ? 1 : 0);
+  if (state == State::PLUGIN_PICKER) {
+    const int rootApps = rootMode ? 11 : 0;
+    return static_cast<int>(installedPlugins.size()) + (showOpds ? 1 : 0) + (showPluginHubInstallRow ? 1 : 0) + rootApps;
+  }
   if (state == State::LIST_PICKER) return static_cast<int>(manifest.browseLists.size());
   if (state != State::BROWSING) return 0;
   return static_cast<int>(items.size()) + (prevRowVisible() ? 1 : 0) + (nextRowVisible() ? 1 : 0);
@@ -1139,6 +1160,7 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
 
 // Sign-in and completion states precede the shared catalog input handling.
 bool PluginCatalogActivity::handleCustomInput() {
+  if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
   if (ignoreHubInstallerBackRelease) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       ignoreHubInstallerBackRelease = false;
@@ -1147,6 +1169,22 @@ bool PluginCatalogActivity::handleCustomInput() {
     if (!mappedInput.isPressed(MappedInputManager::Button::Back)) ignoreHubInstallerBackRelease = false;
   }
   if (pluginHubPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
+
+  if (rootMode && (state == State::BROWSING || state == State::PLUGIN_PICKER || state == State::LIST_PICKER)) {
+    if (BottomDockBar::checkAutoHide(dockCollapsed)) {
+      resetUi();
+      requestUpdate();
+      return true;
+    }
+    bool needUpdate = false;
+    if (BottomDockBar::handleTouch(mappedInput, BottomDockBar::Tab::Apps, dockCollapsed, needUpdate)) {
+      if (needUpdate) {
+        resetUi();
+        requestUpdate();
+      }
+      return true;
+    }
+  }
 
   if (state == State::AUTH) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -1189,6 +1227,12 @@ bool PluginCatalogActivity::handleCustomInput() {
   }
 
   return CatalogActivity::handleCustomInput();
+}
+
+void PluginCatalogActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
+  if (rootMode && BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+    resetUi();
+  }
 }
 
 void PluginCatalogActivity::retryBrowse() {
@@ -1243,12 +1287,84 @@ void PluginCatalogActivity::onBackButton() {
 void PluginCatalogActivity::activateIndex(const int index) {
   if (state == State::PLUGIN_PICKER) {
     if (index < 0 || index >= rowCount()) return;
-    if (showOpds && index == 0) {
+    if (rootMode) {
+      if (index == 0) {
+        app.clearTapFlash();
+        activityManager.goToGallery();
+        return;
+      }
+      if (index == 1) {
+        app.clearTapFlash();
+        activityManager.goToCalendar();
+        return;
+      }
+      if (index == 2) {
+        app.clearTapFlash();
+        activityManager.goToDictionary();
+        return;
+      }
+      if (index == 3) {
+        app.clearTapFlash();
+        activityManager.goToSettings(SettingsSection::Reader);
+        return;
+      }
+      if (index == 4) {
+        app.clearTapFlash();
+        activityManager.goToWebReader();
+        return;
+      }
+      if (index == 5) {
+        app.clearTapFlash();
+        activityManager.goToFileTransfer();
+        return;
+      }
+      if (index == 6) {
+        app.clearTapFlash();
+        const GlobalReadingStats deviceStats = GlobalReadingStats::load();
+        if (GlobalReadingStats::hasSyncedStats()) {
+          startActivityForResult(
+              std::make_unique<BookStatsActivity>(
+                  renderer, mappedInput, tr(STR_READING_STATS), "", BookReadingStats{}, -1.0f, false, 0,
+                  deviceStats, GlobalReadingStats::loadAggregated(deviceStats)),
+              [](const ActivityResult&) {});
+        } else {
+          startActivityForResult(
+              std::make_unique<BookStatsActivity>(
+                  renderer, mappedInput, tr(STR_READING_STATS), "", BookReadingStats{}, -1.0f, false, 0,
+                  deviceStats),
+              [](const ActivityResult&) {});
+        }
+        return;
+      }
+      if (index == 7) {
+        app.clearTapFlash();
+        activityManager.goToFileBrowser();
+        return;
+      }
+      if (index == 8) {
+        app.clearTapFlash();
+        activityManager.goToReadingTimer();
+        return;
+      }
+      if (index == 9) {
+        app.clearTapFlash();
+        activityManager.goToChess();
+        return;
+      }
+      if (index == 10) {
+        app.clearTapFlash();
+        activityManager.goToGame2048();
+        return;
+      }
+    }
+    const int rootApps = rootMode ? 11 : 0;
+    const int adjustedIndex = index - rootApps;
+    if (showOpds && adjustedIndex == 0) {
       app.clearTapFlash();            // the row leaves this screen
       activityManager.goToBrowser();  // replaces this screen with the OPDS browser
       return;
     }
-    const int pluginStart = showOpds ? 1 : 0;
+    const int pluginStart = rootApps + (showOpds ? 1 : 0);
     if (showPluginHubInstallRow && index == pluginStart) {
       static constexpr StrId OPTIONS[] = {StrId::STR_INSTALL, StrId::STR_HIDE, StrId::STR_CANCEL};
       pluginHubPopup.show(StrId::STR_PLUGIN_HUB, OPTIONS, 3, 0, [this](const int selected) {
@@ -1273,35 +1389,9 @@ void PluginCatalogActivity::activateIndex(const int index) {
       return;
     }
     const int syntheticHubRows = showPluginHubInstallRow ? 1 : 0;
-    const PluginRef& plugin = installedPlugins[index - pluginStart - syntheticHubRows];
-    const auto action = PluginLocations::pickerAction(plugin.deviceKind, !plugin.readmePath.empty());
-    if (action == PluginLocations::PickerAction::Readme) {
-      // A plain paged text view, not the book reader: viewing instructions must
-      // not touch the last-read book, recents, progress, or reader events.
-      // Capped: a README is setup notes, not a book, and lives in RAM here.
-      static constexpr size_t MAX_README_BYTES = 16 * 1024;
-      std::string text;
-      if (!Storage.readFileToString("PCAT", plugin.readmePath, MAX_README_BYTES, text)) {
-        LOG_ERR("PCAT", "README unreadable, empty, or over %u bytes: %s", static_cast<unsigned>(MAX_README_BYTES),
-                plugin.readmePath.c_str());
-        return;
-      }
-      auto viewer =
-          makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, plugin.title, std::move(text));
-      if (!viewer) {
-        LOG_ERR("PCAT", "OOM: README viewer");
-        return;
-      }
-      app.clearTapFlash();
-      startActivityForResult(std::move(viewer), [](const ActivityResult&) {});
-      return;
-    }
-    if (action != PluginLocations::PickerAction::Catalog) return;
-    app.clearTapFlash();  // the row leaves this screen
-    pickerReturnName = plugin.name;
-    manifestPath = plugin.manifestPath;
-    catalogTitle = plugin.title;
-    enterCatalog();
+    const PluginRef plugin = installedPlugins[index - pluginStart - syntheticHubRows];
+    app.clearTapFlash();
+    openInstalledPlugin(plugin);
     return;
   }
   if (state == State::LIST_PICKER) {
@@ -1321,6 +1411,94 @@ void PluginCatalogActivity::activateIndex(const int index) {
   }
   app.clearTapFlash();  // the row leaves this screen (folder, download view)
   activateItem(itemIndex);
+}
+
+void PluginCatalogActivity::onRowLongPress(const int index) {
+  if (state != State::PLUGIN_PICKER) return;
+
+  const int rootApps = rootMode ? 10 : 0;
+  const int pluginStart = rootApps + (showOpds ? 1 : 0);
+  const int syntheticHubRows = showPluginHubInstallRow ? 1 : 0;
+  const int actualPluginIndex = index - pluginStart - syntheticHubRows;
+
+  if (actualPluginIndex >= 0 && actualPluginIndex < static_cast<int>(installedPlugins.size())) {
+    const PluginRef plugin = installedPlugins[actualPluginIndex];
+    static const char* PLUGIN_OPTIONS[] = {
+      "M\u1edf \u1ee9ng d\u1ee5ng",
+      "Xo\u00e1 \u1ee9ng d\u1ee5ng (G\u1ee1 c\u00e0i \u0111\u1eb7t)",
+      "Hu\u1ef7"
+    };
+    app.clearTapFlash();
+    optionPopup.show("Tu\u1ef3 ch\u1ecdn \u1ee9ng d\u1ee5ng", plugin.title.c_str(), PLUGIN_OPTIONS, 3, 0,
+                     [this, plugin](const int choice) {
+                       if (choice == 0) {
+                         openInstalledPlugin(plugin);
+                       } else if (choice == 1) {
+                         promptDeletePlugin(plugin);
+                       }
+                     });
+    requestUpdate();
+    return;
+  }
+
+  if (rootMode && index >= 0 && index < rootApps) {
+    static const char* SYS_OPTIONS[] = {"M\u1edf \u1ee9ng d\u1ee5ng", "\u0110\u00f3ng"};
+    app.clearTapFlash();
+    optionPopup.show("\u1ee8ng d\u1ee5ng h\u1ec7 th\u1ed1ng", "\u1ee8ng d\u1ee5ng m\u1eb7c \u0111\u1ecbnh c\u1ee7a h\u1ec7 \u0111i\u1ec1u h\u00e0nh, kh\u00f4ng th\u1ec3 xo\u00e1.", SYS_OPTIONS, 2, 0,
+                     [this, index](const int choice) {
+                       if (choice == 0) {
+                         activateIndex(index);
+                       }
+                     });
+    requestUpdate();
+  }
+}
+
+void PluginCatalogActivity::openInstalledPlugin(const PluginRef& plugin) {
+  const auto action = PluginLocations::pickerAction(plugin.deviceKind, !plugin.readmePath.empty());
+  if (action == PluginLocations::PickerAction::Readme) {
+    static constexpr size_t MAX_README_BYTES = 16 * 1024;
+    std::string text;
+    if (!Storage.readFileToString("PCAT", plugin.readmePath, MAX_README_BYTES, text)) {
+      LOG_ERR("PCAT", "README unreadable, empty, or over %u bytes: %s", static_cast<unsigned>(MAX_README_BYTES),
+              plugin.readmePath.c_str());
+      return;
+    }
+    auto viewer =
+        makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, plugin.title, std::move(text));
+    if (!viewer) {
+      LOG_ERR("PCAT", "OOM: README viewer");
+      return;
+    }
+    app.clearTapFlash();
+    startActivityForResult(std::move(viewer), [](const ActivityResult&) {});
+    return;
+  }
+  if (action != PluginLocations::PickerAction::Catalog) return;
+  app.clearTapFlash();  // the row leaves this screen
+  pickerReturnName = plugin.name;
+  manifestPath = plugin.manifestPath;
+  catalogTitle = plugin.title;
+  enterCatalog();
+}
+
+void PluginCatalogActivity::promptDeletePlugin(const PluginRef& plugin) {
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(
+      renderer, mappedInput, "Xo\u00e1 \u1ee9ng d\u1ee5ng?",
+      "B\u1ea1n c\u00f3 ch\u1eafc ch\u1eafn mu\u1ed1n xo\u00e1 '" + plugin.title + "' kh\u00f4ng?",
+      "Hu\u1ef7", "Xo\u00e1");
+  if (!confirmation) return;
+  startActivityForResult(std::move(confirmation), [this, plugin](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      std::string dir = PluginLocations::findPluginDirOnDisk(plugin.name.c_str());
+      if (dir.empty()) dir = "/plugins/" + plugin.name;
+      LOG_DBG("PCAT", "Deleting plugin folder: %s", dir.c_str());
+      Storage.removeDir(dir.c_str());
+      GUI.drawPopup(renderer, "\u0110\u00e3 xo\u00e1 \u1ee9ng d\u1ee5ng!");
+      delay(800);
+      enterPluginPicker();
+    }
+  });
 }
 
 void PluginCatalogActivity::activateItem(const int itemIndex) {
@@ -1487,18 +1665,24 @@ void PluginCatalogActivity::drawFooter() {
       labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       break;
   }
+  if (rootMode && (state == State::BROWSING || state == State::PLUGIN_PICKER || state == State::LIST_PICKER)) {
+    BottomDockBar::render(renderer, BottomDockBar::Tab::Apps, dockCollapsed);
+    return;
+  }
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void PluginCatalogActivity::render(RenderLock&& lock) {
   if (pluginHubPopup.processRender(renderer, mappedInput)) return;
+  if (optionPopup.processRender(renderer, mappedInput)) return;
   CatalogActivity::render(std::move(lock));
 }
 
 void PluginCatalogActivity::buildScreen(UiScreen& screen) {
   const bool listState = state == State::BROWSING || state == State::LIST_PICKER;
   const std::string title = listState ? browsingHeaderLabel() : catalogTitle;
-  screenHeader(screen, title.c_str());
+  const bool isRootListState = rootMode && (state == State::BROWSING || state == State::LIST_PICKER || state == State::PLUGIN_PICKER);
+  screenHeader(screen, title.c_str(), /*backButton=*/!isRootListState);
   if (buildStatusScreen(screen)) return;
 
   switch (state) {
@@ -1560,6 +1744,14 @@ std::string PluginCatalogActivity::browsingHeaderLabel() const {
 }
 
 void PluginCatalogActivity::buildBrowsingScreen(UiScreen& screen) {
+  if (rootMode) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int16_t dockReserved = static_cast<int16_t>(BottomDockBar::getBottomReservedHeight(dockCollapsed));
+    screen.setContentMarginFromScreen(
+        fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing), 0,
+                    dockReserved, 0});
+  }
+
   if (rowsDirty) {
     rebuildRowItems();
     rowsDirty = false;
@@ -1571,11 +1763,16 @@ void PluginCatalogActivity::buildBrowsingScreen(UiScreen& screen) {
     return;
   }
 
+  if (state == State::PLUGIN_PICKER && rootMode) {
+    buildAppGridScreen(screen);
+    return;
+  }
+
   fui::ListProps props;
   props.items = rowItems.data();
   props.count = static_cast<uint16_t>(rowItems.size());
   props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
   if (state == State::PLUGIN_PICKER) {
     // Mark the subtitle style caller-owned before resolving the theme.
@@ -1600,31 +1797,49 @@ void PluginCatalogActivity::buildBrowsingScreen(UiScreen& screen) {
 void PluginCatalogActivity::rebuildRowItems() {
   rowItems.clear();
   rowItems.reserve(rowCount());
-  const auto addRow = [&](const char* label, const char* subtitle = nullptr, const char* value = nullptr) {
+  const auto addRow = [&](const char* label, const char* subtitle = nullptr, const char* value = nullptr,
+                          const freeink::ui::BitmapRef& icon = {}) {
     fui::ListItem row;
     row.label = label;
     row.subtitle = subtitle && subtitle[0] ? subtitle : nullptr;
     row.value = value && value[0] ? value : nullptr;
+    row.icon = icon;
     row.actionValue = static_cast<int16_t>(rowItems.size());
     rowItems.push_back(row);
   };
   if (state == State::PLUGIN_PICKER) {
-    if (showOpds) addRow(tr(STR_OPDS_BROWSER), tr(STR_OPDS_SERVERS));
-    if (showPluginHubInstallRow) addRow(tr(STR_PLUGIN_HUB), tr(STR_PLUGIN_HUB_DESCRIPTION), ">");
+    if (rootMode) {
+      addRow(tr(STR_GALLERY), nullptr, ">", fui::bitmapFromIcon(icon_image_24));
+      addRow("L\u1ecbch \u00e2m Vi\u1ec7t Nam", nullptr, ">", fui::bitmapFromIcon(icon_calendar_24));
+      addRow("T\u1eeb \u0111i\u1ec3n", nullptr, ">", fui::bitmapFromIcon(icon_reading_stats_24));
+      addRow("C\u00e0i \u0111\u1eb7t \u0111\u1ecdc", nullptr, ">", fui::bitmapFromIcon(icon_book_open_24));
+      addRow(tr(STR_WEB_READER), nullptr, ">", fui::bitmapFromIcon(icon_browser_globe_24));
+      addRow("Truy\u1ec1n t\u1ec7p Web", nullptr, ">", fui::bitmapFromIcon(icon_upload_24));
+      addRow(tr(STR_READING_STATS), nullptr, ">", fui::bitmapFromIcon(icon_reading_stats_24));
+      addRow("Tr\u00ecnh duy\u1ec7t t\u1ec7p", nullptr, ">", fui::bitmapFromIcon(icon_folder_24));
+      addRow("H\u1eb9n gi\u1edd \u0111\u1ecdc", nullptr, ">", fui::bitmapFromIcon(icon_moon_24));
+      addRow("C\u1edd vua", nullptr, ">", fui::bitmapFromIcon(icon_blocks_24));
+      addRow("2048", nullptr, ">", fui::bitmapFromIcon(icon_blocks_24));
+    }
+    if (showOpds) addRow(tr(STR_OPDS_BROWSER), nullptr, ">", fui::bitmapFromIcon(icon_library_24));
+    if (showPluginHubInstallRow) addRow("Plugin Hub", nullptr, ">", fui::bitmapFromIcon(icon_blocks_24));
     for (const auto& plugin : installedPlugins) {
       //   None       -> web-only hint; chevron only with a readme
       //   Catalog    -> browsable, own description, chevron
       //   Background -> events-only, own description, chevron only with a readme
-      const char* subtitle = plugin.description.empty() ? nullptr : plugin.description.c_str();
+      const char* title = plugin.title.c_str();
+      if (plugin.name == "pluginhub") {
+        title = "Plugin Hub";
+      }
       switch (plugin.deviceKind) {
         case PluginLocations::DeviceKind::None:
-          addRow(plugin.title.c_str(), tr(STR_PLUGIN_WEB_ONLY), plugin.readmePath.empty() ? nullptr : ">");
+          addRow(title, nullptr, plugin.readmePath.empty() ? nullptr : ">", fui::bitmapFromIcon(icon_blocks_24));
           break;
         case PluginLocations::DeviceKind::Catalog:
-          addRow(plugin.title.c_str(), subtitle, ">");
+          addRow(title, nullptr, ">", fui::bitmapFromIcon(icon_blocks_24));
           break;
         case PluginLocations::DeviceKind::Background:
-          addRow(plugin.title.c_str(), subtitle, plugin.readmePath.empty() ? nullptr : ">");
+          addRow(title, nullptr, plugin.readmePath.empty() ? nullptr : ">", fui::bitmapFromIcon(icon_blocks_24));
           break;
       }
     }
@@ -1636,6 +1851,66 @@ void PluginCatalogActivity::rebuildRowItems() {
       addRow(entry.title.c_str(), entry.author.c_str(), entry.isDir ? ">" : entry.status.c_str());
     }
     if (nextRowVisible()) addRow(tr(STR_NEXT_PAGE), nullptr, ">");
+  }
+}
+
+void PluginCatalogActivity::buildAppGridScreen(UiScreen& screen) {
+  constexpr int numCols = 3;
+  constexpr int16_t colW = 160;
+  constexpr int16_t iconSize = 72;
+  constexpr int16_t cornerRadius = 20; // Samsung One UI soft squircle
+  constexpr int16_t startY = 100;
+  constexpr int16_t rowHeight = 138;
+
+  const int selectedIdx = activeNav().selected.load();
+  const size_t count = rowItems.size();
+
+  for (size_t i = 0; i < count; ++i) {
+    const int col = static_cast<int>(i % numCols);
+    const int row = static_cast<int>(i / numCols);
+    const int16_t colCenterX = static_cast<int16_t>(col * colW + colW / 2);
+    const int16_t iconX = static_cast<int16_t>(colCenterX - iconSize / 2);
+    const int16_t iconY = static_cast<int16_t>(startY + row * rowHeight);
+    const fui::Rect iconRect{iconX, iconY, iconSize, iconSize};
+
+    const auto& item = rowItems[i];
+    const bool isSelected = (selectedIdx == static_cast<int>(i));
+
+    // Hitbox cảm ứng bao gồm cả icon và tên app (hỗ trợ cả chạm mở và bấm giữ tuỳ chọn)
+    const fui::Rect hitRect{static_cast<int16_t>(colCenterX - 72), static_cast<int16_t>(iconY - 4), 144,
+                            static_cast<int16_t>(iconSize + 50)};
+    screen.frame().hit(hitRect, ACTION_ROW, static_cast<int16_t>(i),
+                       static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress));
+
+    // 1. Hiệu ứng Khối Nổi 3D Samsung One UI (3D Squircle with Subtle Drop Shadow)
+    // Đổ bóng đen 2px nhẹ nhàng tinh tế (giảm nhỏ theo yêu cầu người dùng)
+    screen.target().fill(fui::Rect{static_cast<int16_t>(iconX + 2), static_cast<int16_t>(iconY + 2), iconSize, iconSize},
+                         fui::Paint::solid(fui::Color::Black), cornerRadius);
+
+    // 2. Thân Icon Squircle nền trắng
+    screen.target().fill(iconRect, fui::Paint::solid(fui::Color::White), cornerRadius);
+
+    // 3. Viền đen sắc nét bo góc Squircle (dày hơn khi được chọn)
+    screen.target().stroke(iconRect, fui::Paint::solid(fui::Color::Black), isSelected ? 3 : 2, cornerRadius);
+
+    // 4. Icon đồ họa ở chính giữa Squircle
+    if (item.icon) {
+      constexpr int16_t glyphBox = 36;
+      const fui::Rect glyphRect{static_cast<int16_t>(iconX + (iconSize - glyphBox) / 2),
+                                static_cast<int16_t>(iconY + (iconSize - glyphBox) / 2), glyphBox, glyphBox};
+      screen.target().bitmap(glyphRect, item.icon, fui::BitmapMode::Center);
+    }
+
+    // 5. Tên App căn giữa bên dưới (2 dòng để không bị che, không có mô tả)
+    if (item.label) {
+      fui::TextStyle titleStyle = screen.theme().smallText;
+      titleStyle.color = fui::Color::Black;
+      titleStyle.align = fui::TextAlign::Center;
+      titleStyle.maxLines = 2;
+      const fui::Rect titleRect{static_cast<int16_t>(colCenterX - 70), static_cast<int16_t>(iconY + iconSize + 8),
+                                140, 36};
+      screen.target().text(titleRect, item.label, titleStyle);
+    }
   }
 }
 

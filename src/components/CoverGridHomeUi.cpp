@@ -10,12 +10,15 @@
 
 #include "MappedInputManager.h"
 #include "UITheme.h"
+#include "components/BottomDockBar.h"
 #include "icons/blocks.h"
 #include "icons/book.h"
 #include "icons/folder.h"
 #include "icons/library.h"
+#include "icons/listIcons.h"
 #include "icons/settings2.h"
 #include "icons/transfer.h"
+#include "fontIds.h"
 #include "util/BookProgress.h"
 
 namespace fui = freeink::ui;
@@ -113,24 +116,14 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
   // Reserve the band's slot in the flow (its content draws at a fixed screen
   // position in drawHeaderBand); the slot doubles as padding above the heading.
   screen.takeTop(UITheme::getInstance().getMetrics().batteryBarHeight, theme.spaceSm);
-  // Button boards run tighter above the tabs to make room for the top step.
+  // Reserve space at bottom for the Neo-Brutalist dock bar (or collapsed indicator)
+  const int16_t dockHeight = dockCollapsed ? static_cast<int16_t>(BottomDockBar::RESERVED_COLLAPSED)
+                                           : static_cast<int16_t>(52);
   const int16_t tabGap = BoardConfig::hasTouch() ? theme.spaceSm : static_cast<int16_t>(4);
-  const auto& board = BoardConfig::ACTIVE;
-  auto tabRect = screen.takeBottom(UITheme::getInstance().getMetrics().coverGridTabBarHeight, tabGap);
-  // The board's tab height sits at the bottom of the theme's slot, then its
-  // offset lower; the slot itself is unchanged, so the grid keeps its size.
-  const auto tabHeight = static_cast<int16_t>(tabRect.height * board.tabBarHeightPct / 100);
-  tabRect.y = static_cast<int16_t>(tabRect.y + tabRect.height - tabHeight + board.tabBarOffsetY);
-  tabRect.height = tabHeight;
-  // The board's share of the row the tabs spread across, centered.
-  const auto fitTabWidth = [&board](fui::Rect rect) {
-    const auto width = static_cast<int16_t>(rect.width * board.tabBarWidthPct / 100);
-    rect.x = static_cast<int16_t>(rect.x + (rect.width - width) / 2);
-    rect.width = width;
-    return rect;
-  };
+  screen.takeBottom(dockHeight, tabGap);
+
   if (books->empty()) {
-    drawTabs(screen, fitTabWidth(tabRect.inset(fui::Insets{0, COVER_CELL_INSET, 0, COVER_CELL_INSET})));
+    drawTabs(screen);
     drawEmpty(screen);
     drawHeaderBand();
     return;
@@ -148,9 +141,7 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
                                                      screen.target().lineHeight(theme.smallText.font) * 2 + 32));
   drawCurrent(screen, screen.takeTop(featuredHeight, theme.spaceSm), coverRowHeight);
   drawGrid(screen);
-  tabRect.x = gridBounds.x + grid.cellInset.left;
-  tabRect.width = gridBounds.width - grid.cellInset.left - grid.cellInset.right;
-  drawTabs(screen, fitTabWidth(tabRect));
+  drawTabs(screen);
   drawHeaderBand();
 }
 
@@ -282,36 +273,26 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
   fui::coverGrid(screen.frame(), rect, grid);
 }
 
-void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
-  int count = 0;
-  for (int i = 0; i < 5; ++i) {
-    if (i == 2 && !hasOpds) continue;
-    auto& tab = tabItems[count];
-    tab.value = books->size() + count;
-    tab.selected = selected == tab.value;
-    tab.label = nullptr;
-    ++count;
+void CoverGridHomeUi::drawTabs(UiScreen& screen) {
+  BottomDockBar::render(renderer, BottomDockBar::Tab::Home, dockCollapsed);
+
+  if (dockCollapsed) {
+    // Vùng chạm của vạch indicator dưới đáy để mở rộng Dock
+    screen.frame().hit(fui::Rect{static_cast<int16_t>(BottomDockBar::BAR_X - 24),
+                                static_cast<int16_t>(BottomDockBar::BAR_Y - 14),
+                                static_cast<int16_t>(BottomDockBar::BAR_W + 48),
+                                static_cast<int16_t>(BottomDockBar::BAR_H + 24)},
+                       SELECT, static_cast<int>(books->size()) + 0, fui::InputTouch);
+    return;
   }
-  tabs.tabs = tabItems.data();
-  tabs.count = count;
-  tabs.layout = fui::TabBarLayout::SpaceBetween;
-  tabs.action = SELECT;
-  tabs.inputMask = fui::InputTouch;
-  tabs.iconSize = 32;
-  tabs.iconPainterUserData = this;
-  tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {
-    const auto& self = *static_cast<CoverGridHomeUi*>(user);
-    const int index = tab.value - static_cast<int>(self.books->size());
-    const int icon = !self.hasOpds && index >= 2 ? index + 1 : index;
-    self.renderer.drawIcon(ICONS[icon], iconRect.x, iconRect.y, iconRect.width);
-    return true;
-  };
-  // No pill fill; the underline marks the selected tab.
-  tabs.tabStyles.explicitlySet = true;
-  tabs.selectedUnderline = 2;
-  tabs.distributedSlotWidth = 0;
-  fui::tabBar(screen.frame(), rect, tabs);
+
+  for (int i = 0; i < 4; ++i) {
+    const int tabX = BottomDockBar::ISLAND_MARGIN_X + i * BottomDockBar::TAB_W;
+    const int tabValue = static_cast<int>(books->size() + i);
+    screen.frame().hit(fui::Rect{static_cast<int16_t>(tabX), static_cast<int16_t>(BottomDockBar::ISLAND_Y),
+                                static_cast<int16_t>(BottomDockBar::TAB_W), static_cast<int16_t>(BottomDockBar::ISLAND_H)},
+                       SELECT, tabValue, fui::InputTouch);
+  }
 }
 
 bool CoverGridHomeUi::paintFramedCover(fui::DrawTarget& target, fui::Rect rect, size_t index) {

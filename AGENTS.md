@@ -43,6 +43,8 @@ Use the table to find guidance for the decisions being changed. Read relevant se
 | Cache formats, layout persistence, or invalidation | [versioning](.agents/rules/generated-files-cache.md#cache-file-format-versioning) and [invalidation](.agents/rules/generated-files-cache.md#cache-invalidation-rules) |
 | New features, activities, settings, libraries, or dependencies | `SCOPE.md` and the `scope-discipline` skill |
 | Restructuring, extraction, or separating unrelated cleanup | the `refactor-for-review` skill |
+| Agent onboarding, recent features & collaboration protocol | [AGENT_COLLABORATION_GUIDE.md](docs/AGENT_COLLABORATION_GUIDE.md) |
+| Xteink X4 Pro hardware details, pinout & power protection | [HARDWARE_X4PRO.md](docs/HARDWARE_X4PRO.md) |
 
 Repository-local skills live under `.agents/skills/`. Their descriptions identify specific procedures to use when needed; a keyword match alone does not require loading a skill.
 

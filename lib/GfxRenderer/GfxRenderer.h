@@ -221,7 +221,13 @@ class GfxRenderer {
                              bool includeSmallCaps = false) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
-  void setOrientation(const Orientation o) { orientation = o; }
+  void setOrientation(const Orientation o) {
+    orientation = o;
+    clipLeft_ = 0;
+    clipTop_ = 0;
+    clipRight_ = getScreenWidth();
+    clipBottom_ = getScreenHeight();
+  }
   Orientation getOrientation() const { return orientation; }
 
   // Fading fix control
@@ -300,6 +306,8 @@ class GfxRenderer {
     clipRight_ = x + width;
     clipBottom_ = y + height;
   }
+  void beginTextClip(int x, int y, int width, int height) const { setClipRect(x, y, width, height); }
+  void endTextClip() const { setClipRect(0, 0, getScreenWidth(), getScreenHeight()); }
   void drawPixel(int x, int y, bool state = true) const;
   // Draw glyph ink with clipping and orientation resolved once per glyph.
   void drawGlyphBitmap(const uint8_t* bitmap, int width, int height, const glyphBitmap::Frame& frame, bool twoBit,

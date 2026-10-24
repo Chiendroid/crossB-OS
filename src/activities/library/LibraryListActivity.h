@@ -52,6 +52,7 @@ class LibraryListActivity final : public UiTabListActivity {
   freeink::ui::TabIndicator tabIndicator(int index) const override;
   void onTabAction(int index) override;
   void stepTab(int direction) override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
   bool handleCustomInput() override;
   bool handleButtons() override;
   void navigateButtons() override;
@@ -193,4 +194,6 @@ class LibraryListActivity final : public UiTabListActivity {
   // Row options modal (Recent long-press menu); owned here so it outlives the
   // touch event that opened it.
   OptionPopup optionPopup;
+
+  bool dockCollapsed = false;
 };

@@ -208,11 +208,11 @@ void CatalogActivity::finishDownload(const HttpDownloader::DownloadError result)
   }
 }
 
-void CatalogActivity::screenHeader(UiScreen& screen, const char* title) {
+void CatalogActivity::screenHeader(UiScreen& screen, const char* title, const bool backButton) {
   const bool search = state == State::BROWSING && hasSearch();
   catalogScreenHeader(screen, renderer, title,
                       search ? freeink::ui::bitmapFromIcon(icon_search_32) : freeink::ui::BitmapRef{},
-                      search ? ACTION_SEARCH : freeink::ui::NO_ACTION);
+                      search ? ACTION_SEARCH : freeink::ui::NO_ACTION, backButton);
 }
 
 bool CatalogActivity::buildStatusScreen(UiScreen& screen, const bool boldError, const bool showDownloadTotal) {

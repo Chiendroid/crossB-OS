@@ -11,6 +11,7 @@ class SleepActivity final : public Activity {
   explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool fromTimeout = false)
       : Activity("Sleep", renderer, mappedInput), fromTimeout(fromTimeout) {}
   void onEnter() override;
+  void onExit() override;
 
  private:
   void renderDefaultSleepScreen() const;
@@ -25,7 +26,4 @@ class SleepActivity final : public Activity {
   void renderBlankSleepScreen() const;
 
   bool fromTimeout = false;
-  // Cover + Transparent: the cover under the overlay, and the same cover while its gray planes are redrawn.
-  mutable const Bitmap* overlayCover = nullptr;
-  mutable const Bitmap* overlayGrayCover = nullptr;
 };

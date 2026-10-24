@@ -5,27 +5,34 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
-#include <HalFrontlight.h>
 #include <HalPowerManager.h>
 #include <Memory.h>
 #include <VectorFontSupport.h>
 
 #include <algorithm>
 
-#include "Activity.h"
 #include "CrossPointSettings.h"
 #include "HapticFeedback.h"
 #include "OpdsServerStore.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "browser/WebReaderActivity.h"
 #include "components/HeaderBackTapTarget.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
+#include "network/NearbyBookTransferActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "gallery/GalleryActivity.h"
+#include "calendar/CalendarAppActivity.h"
+#include "dictionary/DictionaryAppActivity.h"
+#include "telegram/TelegramLiteActivity.h"
+#include "util/ReadingTimerActivity.h"
+#include "chess/ChessActivity.h"
+#include "games/Game2048Activity.h"
 #include "plugins/PluginCatalogActivity.h"
 #include "reader/ReaderActivity.h"
 #include "reader/RemoteTurnGate.h"
@@ -36,14 +43,6 @@
 #include "util/FullScreenMessageActivity.h"
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
-
-ActivityManager::ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
-  assert(renderingMutex != nullptr && "Failed to create rendering mutex");
-  stackActivities.reserve(10);
-}
-
-ActivityManager::~ActivityManager() { assert(false); /* should never be called */ }
 
 void ActivityManager::begin() {
 #if defined(configNUM_CORES) && configNUM_CORES > 1
@@ -139,9 +138,7 @@ void ActivityManager::loop() {
       // The header back button shares this band; its taps stay Back.
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
-    // Only boards whose frontlight was detected get the panel.
-    if (Frontlight.present() && currentActivity->name != "FrontlightPanel" &&
-        (statusBarTap || mappedInput.wasLightPanelGesture())) {
+    if (currentActivity->name != "FrontlightPanel" && (statusBarTap || mappedInput.wasLightPanelGesture())) {
       haptic_feedback::touchAction();
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;
@@ -295,6 +292,27 @@ void ActivityManager::goToUsbDrive() {
 #endif
 }
 
+bool ActivityManager::goToNearbyBookSend(std::string path, const bool returnToReader) {
+  auto activity = std::make_unique<NearbyBookTransferActivity>(
+      renderer, mappedInput, NearbyBookTransferActivity::Mode::Send, std::move(path), returnToReader);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: nearby file sender");
+    return false;
+  }
+  replaceActivity(std::move(activity));
+  return true;
+}
+
+void ActivityManager::goToNearbyBookReceive() {
+  auto activity =
+      std::make_unique<NearbyBookTransferActivity>(renderer, mappedInput, NearbyBookTransferActivity::Mode::Receive);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: nearby file receiver");
+    return;
+  }
+  replaceActivity(std::move(activity));
+}
+
 void ActivityManager::goToSettings(const SettingsSection openSection) {
   replaceActivity(std::make_unique<SettingsListActivity>(renderer, mappedInput, openSection));
 }
@@ -324,6 +342,38 @@ void ActivityManager::goToBrowser() {
 
 void ActivityManager::goToPlugins(bool showOpds) {
   replaceActivity(std::make_unique<PluginCatalogActivity>(renderer, mappedInput, showOpds, /*rootMode=*/true));
+}
+
+void ActivityManager::goToGallery() {
+  replaceActivity(std::make_unique<GalleryActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToWebReader(std::string url) {
+  replaceActivity(std::make_unique<WebReaderActivity>(renderer, mappedInput, std::move(url)));
+}
+
+void ActivityManager::goToCalendar() {
+  replaceActivity(std::make_unique<CalendarAppActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToDictionary() {
+  replaceActivity(std::make_unique<DictionaryAppActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToTelegram() {
+  replaceActivity(std::make_unique<TelegramLiteActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToReadingTimer() {
+  replaceActivity(std::make_unique<ReadingTimerActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToChess() {
+  replaceActivity(std::make_unique<ChessActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToGame2048() {
+  replaceActivity(std::make_unique<Game2048Activity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
@@ -367,7 +417,7 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
     } else if (activityName == "Library") {
       initialMenuItem = HomeMenuItem::LIBRARY;
-    } else if (activityName == "OpdsBookBrowser" || activityName == "PluginCatalog") {
+    } else if (activityName == "OpdsBookBrowser" || activityName == "PluginCatalog" || activityName == "Gallery") {
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
     } else if (activityName == "CrossPointWebServer") {
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;

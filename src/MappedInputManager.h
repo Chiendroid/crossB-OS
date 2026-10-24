@@ -76,6 +76,14 @@ class MappedInputManager {
   // (which wasScreenTapped never reports). InputSnapshot builders forward it
   // off-target so FreeInkUI routing clears its pressed-element state.
   bool wasScreenTouchReleased() const;
+  bool wasTapInRect(int x, int y, int width, int height) const;
+  bool hasTouchHardware() const { return hasTouch(); }
+  void setReaderTouchscreenOverride(bool enabled) { (void)enabled; }
+  void suppressNextBackRelease() const { suppressNextRelease(Button::Back); }
+  void suppressNextConfirmRelease() const { suppressNextRelease(Button::Confirm); }
+  bool wasItemTapped(int& id) const;
+  bool wasItemTouchedDown(int& id) const;
+  const char* withBackArrow(const char* label) const { return label; }
 
   // Combined touch interaction for a band of equal rows with caller-supplied
   // geometry — the shared hit-test for lists the theme helpers above do not
@@ -90,6 +98,7 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe(int* startX = nullptr, int* startY = nullptr) const;
+  Button menuButton(Button direction) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
   // page turns (reader) can exclude it from a plain SwipeDir::Right.
   bool wasBackGesture() const;
@@ -125,6 +134,7 @@ class MappedInputManager {
   // True when the control axis is flipped relative to the physical buttons: always on touch boards,
   // or when button-only boards opt in, while the screen is currently INVERTED / LANDSCAPE_CCW.
   [[nodiscard]] bool isNavDirectionSwapped() const;
+  bool wasBottomEdgeUpSwipe() const;
 
  private:
   HalGPIO& gpio;
@@ -142,7 +152,6 @@ class MappedInputManager {
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
   bool wasTopEdgeDownSwipe() const;
-  bool wasBottomEdgeUpSwipe() const;
   // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
   bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
 #if FREEINK_CAP_TOUCH

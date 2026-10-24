@@ -8,6 +8,7 @@
 
 #include "MappedInputManager.h"
 #include "SettingsActivity.h"
+#include "components/BottomDockBar.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 
@@ -26,7 +27,14 @@ SettingsListActivity::SettingsListActivity(GfxRenderer& renderer, MappedInputMan
     : UiListActivity("SettingsList", renderer, mappedInput), pendingSection(openSection) {}
 
 void SettingsListActivity::onEnter() {
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.endTextClip();
   UiListActivity::onEnter();
+  dockCollapsed = BottomDockBar::isGlobalCollapsed();
+  if (!dockCollapsed) {
+    BottomDockBar::resetAutoHideTimer();
+  }
   rebuildRows();
 }
 
@@ -58,9 +66,10 @@ void SettingsListActivity::rebuildRows() {
 
 void SettingsListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the GUI.drawHeader band, above the button hints.
+  const int16_t dockReserved = static_cast<int16_t>(BottomDockBar::getBottomReservedHeight(dockCollapsed));
+  // Content below the GUI.drawHeader band, above the bottom dock.
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+                                                dockReserved, 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   fui::ListProps props;
@@ -105,7 +114,34 @@ void SettingsListActivity::onBackButton() { onGoHome(); }
 void SettingsListActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Version rides in the header's trailing label slot: the footer position
-  // conflicts with button hints on non-touch devices.
+  // conflicts with button hints on non-touch devices. Nút Back ẩn ở trang gốc Settings.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
-                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
+                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION, /*backButton=*/false);
+}
+
+void SettingsListActivity::drawFooter() {
+  BottomDockBar::render(renderer, BottomDockBar::Tab::Settings, dockCollapsed);
+}
+
+bool SettingsListActivity::handleCustomInput() {
+  if (BottomDockBar::checkAutoHide(dockCollapsed)) {
+    resetUi();
+    requestUpdate();
+    return true;
+  }
+  bool needUpdate = false;
+  if (BottomDockBar::handleTouch(mappedInput, BottomDockBar::Tab::Settings, dockCollapsed, needUpdate)) {
+    if (needUpdate) {
+      resetUi();
+      requestUpdate();
+    }
+    return true;
+  }
+  return false;
+}
+
+void SettingsListActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
+  if (BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+    resetUi();
+  }
 }

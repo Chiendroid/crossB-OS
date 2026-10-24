@@ -22,6 +22,11 @@ class SettingsListActivity final : public UiListActivity {
   void activateIndex(int index) override;
   void onBackButton() override;
   void drawChrome() override;
+  void drawFooter() override;
+  bool handleCustomInput() override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
+
+  bool dockCollapsed = false;
 
  public:
   explicit SettingsListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

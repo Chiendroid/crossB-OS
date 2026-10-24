@@ -2,7 +2,28 @@
 #include <BoardConfig.h>
 #include <FreeInkUIGfxRenderer.h>
 
+#include <algorithm>
+
 #include "UITheme.h"
+
+enum class UiListRowType : uint8_t {
+  SingleLine,
+  WithSubtitle,
+};
+
+inline int16_t uiListRowHeight(const freeink::ui::ThemeTokens& tokens, const UiListRowType rowType = UiListRowType::SingleLine) {
+  (void)rowType;
+  return tokens.rowHeight;
+}
+
+inline uint16_t configureUiList(freeink::ui::ListProps& props, const freeink::ui::ThemeTokens& tokens,
+                                const freeink::ui::Rect rect, const UiListRowType rowType = UiListRowType::SingleLine) {
+  (void)rowType;
+  if (props.rowHeight <= 0) props.rowHeight = tokens.rowHeight;
+  if (props.labelText.maxLines > 1) props.rowHeight = std::max(props.rowHeight, tokens.rowHeight);
+  if (props.rowGap < 0) props.rowGap = tokens.listRowGap;
+  return freeink::ui::listVisibleRows(rect, props.rowHeight, props.rowGap);
+}
 
 // Merges the active UITheme's shape (row gaps, radii, insets, selection
 // style) with the uiScale-derived sizes into FreeInkUI theme tokens: the

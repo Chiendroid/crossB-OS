@@ -16,7 +16,8 @@ class GfxRenderer;
 // trailing icon (e.g. search) becomes a header button.
 void catalogScreenHeader(UiAppHost::UiScreen& screen, const GfxRenderer& renderer, const char* title,
                          const freeink::ui::BitmapRef& trailingIcon = {},
-                         freeink::ui::ActionId trailingAction = freeink::ui::NO_ACTION);
+                         freeink::ui::ActionId trailingAction = freeink::ui::NO_ACTION,
+                         bool backButton = true);
 
 // One line of a centered message block; bold marks a heading line.
 struct CatalogLine {

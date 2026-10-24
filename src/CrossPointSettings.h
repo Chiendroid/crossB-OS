@@ -26,7 +26,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     BLANK = 5,
     QUICK_RESUME = 6,
     TRANSPARENT_CUSTOM = 7,
-    COVER_TRANSPARENT = 8,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -150,9 +149,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     REFRESH_FREQUENCY_COUNT
   };
 
-  // Short power button press actions. Touch boards get PWR_CONFIRM in place of
-  // CREATE_CLIPPING; touch boards without a home key also get the reader
-  // shortcuts (see SettingsList.h). Persisted by index: append only.
+  // Short power button press actions. PWR_CONFIRM is only offered on touch
+  // boards (see SettingsList.h).
   enum SHORT_PWRBTN {
     IGNORE = 0,
     SLEEP = 1,
@@ -161,9 +159,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     FOOTNOTES = 4,
     PWR_CONFIRM = 5,
     CREATE_CLIPPING = 6,
-    PWR_BOOKMARK = 7,
-    PWR_SYNC = 8,
-    PWR_READER_MENU = 9,
     SHORT_PWRBTN_COUNT
   };
 
@@ -192,7 +187,17 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, COVER_GRID = 4 };
+#ifdef DEFAULT
+#undef DEFAULT
+#endif
+  enum UI_THEME {
+    DEFAULT = 0,
+    CLASSIC = 1,
+    LYRA = 2,
+    LYRA_3_COVERS = 3,
+    ROUNDEDRAFF = 4,
+    COVER_GRID = DEFAULT
+  };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -233,7 +238,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // Sleep screen settings
-  uint8_t sleepScreen = DARK;
+  uint8_t sleepScreen = LIGHT;
   // Night mode: inverted output polarity, applied to every activity per
   // render by ActivityManager. The sleep screen opts out itself.
   uint8_t screenInverted = 0;
@@ -241,6 +246,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
   uint8_t sleepScreenCoverFilter = NO_FILTER;
+  // Auto-hide bottom dock bar: 0 = Off (always show), 1 = On (auto-hide to indicator bar after 5s)
+  uint8_t autoHideDock = 1;
   // Status bar settings
   uint8_t statusBarChapterPageCount = 1;
   uint8_t statusBarBookProgressPercentage = 1;
@@ -272,6 +279,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t paragraphIndentSpaces = 2;
   static constexpr uint8_t WORD_SPACING_MIN = 50;
   static constexpr uint8_t WORD_SPACING_MAX = 200;
+  static constexpr uint8_t MIN_WORD_SPACING = WORD_SPACING_MIN;
+  static constexpr uint8_t MAX_WORD_SPACING = WORD_SPACING_MAX;
   static constexpr uint8_t WORD_SPACING_STEP = 25;
   uint8_t wordSpacing = 100;                              // percent of the font's space advance
   static constexpr uint8_t CHARACTER_SPACING_OFFSET = 2;  // stored 0..4 maps to -2..+2 px
@@ -317,11 +326,28 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t SCREEN_MARGIN_MIN = 5;
   static constexpr uint8_t SCREEN_MARGIN_MAX = 40;
   static constexpr uint8_t SCREEN_MARGIN_STEP = 5;
+  static constexpr uint8_t MIN_SCREEN_MARGIN = SCREEN_MARGIN_MIN;
+  static constexpr uint8_t MAX_SCREEN_MARGIN = SCREEN_MARGIN_MAX;
+  static constexpr uint8_t SCREEN_MARGIN_SMALL_STEP = 1;
+  static constexpr uint8_t SCREEN_MARGIN_LARGE_STEP = 5;
+  static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
+  static constexpr uint8_t MAX_LINE_HEIGHT_PERCENT = 200;
+  static constexpr uint8_t LINE_HEIGHT_PERCENT_STEP = 1;
+
+  static uint8_t clampedLineHeightPercent(const uint8_t value) {
+    if (value < MIN_LINE_HEIGHT_PERCENT) return MIN_LINE_HEIGHT_PERCENT;
+    if (value > MAX_LINE_HEIGHT_PERCENT) return MAX_LINE_HEIGHT_PERCENT;
+    return value;
+  }
   uint8_t screenMargin = SCREEN_MARGIN_MIN;
   // OPDS download destination folder ("" = SD root). Global; edited from the
   // OPDS server list. Persisted via a category-less SettingInfo::String in
   // SettingsList.h, so it stays out of the on-device Settings screen.
   char opdsDownloadFolder[64] = "";
+  char nearbyReceiveFolder[64] = "";
+  char deviceName[21] = "";
+  static constexpr size_t MIN_DEVICE_NAME_LENGTH = 1;
+  static constexpr size_t MAX_DEVICE_NAME_LENGTH = sizeof(deviceName) - 1;
   // On-disk filename format for OPDS downloads (0=Author-Title default, 1=Title-Author,
   // 2=Title). See OpdsFilenameFormat. Persisted via a category-less SettingInfo::Enum,
   // edited from the OPDS server list; hidden from the on-device Settings screen.
@@ -334,7 +360,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Defaults to Disabled so shortcut-based bookmark toggling remains opt-in.
   uint8_t longPressMenuFunction = LP_MENU_DISABLED;
   // UI Theme
-  uint8_t uiTheme = LYRA;
+  uint8_t uiTheme = DEFAULT;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)
@@ -343,11 +369,27 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t embeddedStyle = 1;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
-  uint8_t readerMenuStyle = READER_MENU_LIST;
+  // Reading underline guide style: 0 = Off, 1 = Solid, 2 = Dotted, 3 = Dashed
+  enum UNDERLINE_STYLE : uint8_t {
+    UNDERLINE_OFF = 0,
+    UNDERLINE_SOLID = 1,
+    UNDERLINE_DOTTED = 2,
+    UNDERLINE_DASHED = 3,
+    UNDERLINE_STYLE_COUNT
+  };
+  uint8_t readingUnderlineStyle = UNDERLINE_OFF;
+
+  // Reading timer limit in minutes (0 = Off)
+  uint8_t readingTimerMinutes = 0;
+  // Reading timer scope: 0 = Global (All books), 1 = Per-book
+  uint8_t readingTimerPerBook = 0;
+  uint8_t readerMenuStyle = READER_MENU_TOOLBAR;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[32] = "";
   // Dictionary folder name under /dictionaries (empty = no dictionary)
   char dictionaryName[32] = "";
+  char dictionarySdFontFamilyName[64] = "";
+  uint8_t dictionaryFontPointSize = 12;
   // Master switch for all SD-card plugin discovery/execution. New installs keep
   // this disabled; settings migration enables it when pre-existing plugin files
   // are found so a firmware update never silently disables an existing setup.
@@ -386,14 +428,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Restore the saved on/off state after a normal boot or wake. Brightness and
   // warmth are always remembered even when this is disabled.
   uint8_t frontlightRestoreOnWake = 1;
-  // What the slide switch controls (boards with one): frontlight on/off or
-  // night mode. The switch's position is applied at boot and on each change.
-  enum SLIDE_SWITCH_ACTION : uint8_t {
-    SLIDE_SWITCH_FRONTLIGHT = 0,
-    SLIDE_SWITCH_NIGHT_MODE = 1,
-    SLIDE_SWITCH_TOUCH_CONTROLS = 2,
-  };
-  uint8_t slideSwitchAction = SLIDE_SWITCH_FRONTLIGHT;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Keyboard layouts the user can reach, using keyboard_layouts::ALL table bits.
@@ -466,6 +500,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // passing it in keeps a spec from ever existing in a half-filled state.
   // Unlocked for the same reason as statusBarSpec(); see the note above.
   ReaderRenderSpec readerRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight) const;
+
+  const char* getEffectiveDeviceName() const;
+  static const char* getDefaultDeviceName();
 
   static const char* getFilePath() { return "/.crosspoint/settings.json"; }
   void toJson(JsonDocument& doc) const;
