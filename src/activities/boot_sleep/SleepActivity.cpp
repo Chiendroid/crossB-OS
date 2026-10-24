@@ -841,7 +841,11 @@ void SleepActivity::renderDefaultSleepScreen(bool fast) const {
     const int progress = loadBookProgress(book->path);
     const int readPct = progress >= 0 ? progress : 0;
     char readStatsBuf[64];
-    snprintf(readStatsBuf, sizeof(readStatsBuf), "\u0110\u00e3 \u0111\u1ecdc: %d%% \u00b7 5 ph\u00fat", readPct);
+    if (readPct > 0) {
+      snprintf(readStatsBuf, sizeof(readStatsBuf), "\u0110\u00e3 \u0111\u1ecdc: %d%%", readPct);
+    } else {
+      snprintf(readStatsBuf, sizeof(readStatsBuf), "S\u00e1ch \u0111ang m\u1edf");
+    }
     renderer.drawText(UI_10_FONT_ID, textX, card1Y + 104, readStatsBuf, true);
 
     // Thanh gạch ngang mảnh tiến độ

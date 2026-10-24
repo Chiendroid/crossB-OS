@@ -90,6 +90,7 @@ void ReaderActivity::rememberBookOnceRendered() {
   if (bookRemembered || !pageRendered.load(std::memory_order_acquire)) return;
   bookRemembered = true;
   APP_STATE.openEpubPath = bookPath;
+  APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath());
   const pluginevents::Var openVars[] = {{"book", bookPath.c_str()}};

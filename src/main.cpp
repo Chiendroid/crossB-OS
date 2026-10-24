@@ -391,6 +391,12 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+  if (APP_STATE.lastSleepFromReader && APP_STATE.openEpubPath.empty()) {
+    const auto& books = RECENT_BOOKS.getBooks();
+    if (!books.empty()) {
+      APP_STATE.openEpubPath = books.front().path;
+    }
+  }
 
   // Sleep may end in a power-off (battery death, latch); persist the clock
   // floor now so a later cold boot resumes from it.
@@ -536,22 +542,35 @@ void setup() {
       const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
                                  SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
       if (isClockSleep) {
-        setupDisplayAndFonts(/*seamless=*/true);
-        SleepActivity sleepActivity(renderer, mappedInputManager);
-        sleepActivity.renderClockSleepScreen(/*fast=*/true);
-        display.deepSleep();
-        Storage.prepareForDeepSleep();
+        if (gpio.getWakeupReason() == HalGPIO::WakeupReason::PowerButton || gpio.verifyPowerButtonWakeup()) {
+          LOG_INF("MAIN", "Power button active during RTC timer wake, resuming normal boot");
+        } else {
+          APP_STATE.loadFromFile();
+          RECENT_BOOKS.loadFromFile();
+          I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+          UITheme::getInstance().reload();
 
-        struct tm tInfo{};
-        int curSec = 0;
-        if (halClock.localTime(tInfo)) {
-          curSec = tInfo.tm_sec;
+          setupDisplayAndFonts(/*seamless=*/true);
+          SleepActivity sleepActivity(renderer, mappedInputManager);
+          sleepActivity.renderClockSleepScreen(/*fast=*/true);
+          display.deepSleep();
+          Storage.prepareForDeepSleep();
+
+          if (gpio.verifyPowerButtonWakeup()) {
+            LOG_INF("MAIN", "Power button pressed during sleep render, waking up");
+          } else {
+            struct tm tInfo{};
+            int curSec = 0;
+            if (halClock.localTime(tInfo)) {
+              curSec = tInfo.tm_sec;
+            }
+            uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
+            if (sleepSec < 5) sleepSec += 60;
+            esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
+            powerManager.startDeepSleep(gpio);
+            return;
+          }
         }
-        uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
-        if (sleepSec < 5) sleepSec += 60;
-        esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
-        powerManager.startDeepSleep(gpio);
-        return;
       }
     }
   }

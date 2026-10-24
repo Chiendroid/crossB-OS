@@ -138,11 +138,10 @@ std::string OtaUpdater::sanitizeChangelog(const char* raw) {
 }
 
 const char* OtaUpdater::getDefaultCurrentChangelog() {
-  return "- Nang cap he thong len phien ban 0.2.0-dev\n"
-         "- Toi uu trinh duyet web, giam thieu loi bo nho OOM\n"
-         "- Sua loi crash khi chon co chu trong trinh doc Epub\n"
-         "- Sua loi man hinh ngu khong hien thi bia sach\n"
-         "- Cai tien giao dien cap nhat OTA va nhat ky thay doi";
+  return "- Nang cap he thong len phien ban 0.2.1-dev\n"
+         "- Sua loi RTC lam moi man hinh ngu bi mat thong tin sach dang doc\n"
+         "- Toi uu trinh duyet web va khoi phuc CrossInk Drawer Menu\n"
+         "- Cai tien giao dien cap nhat OTA va bo nho dem bia sach";
 }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
