@@ -95,14 +95,29 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   return OK;
 }
 
+namespace {
+const char* skipToVersionDigits(const char* s) {
+  if (!s) return "";
+  while (*s && !isdigit(static_cast<unsigned char>(*s))) {
+    s++;
+  }
+  return s;
+}
+}  // namespace
+
 bool OtaUpdater::isUpdateNewer() const {
   if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSPOINT_VERSION) {
     return false;
   }
 
-  // Bỏ qua chữ 'v' hoặc 'V' nếu có ở đầu tag
-  const char* lStr = (latestVersion[0] == 'v' || latestVersion[0] == 'V') ? latestVersion.c_str() + 1 : latestVersion.c_str();
-  const char* cStr = (CROSSPOINT_VERSION[0] == 'v' || CROSSPOINT_VERSION[0] == 'V') ? CROSSPOINT_VERSION + 1 : CROSSPOINT_VERSION;
+  // Nếu ở kênh Dev và tag khác nhau, luôn cho phép cập nhật
+  if (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV && latestVersion != CROSSPOINT_VERSION) {
+    return true;
+  }
+
+  // Tự động tìm vị trí chữ số đầu tiên trong chuỗi phiên bản (bỏ qua 'v', 'crossB-OS-', v.v.)
+  const char* lStr = skipToVersionDigits(latestVersion.c_str());
+  const char* cStr = skipToVersionDigits(CROSSPOINT_VERSION);
 
   int currentMajor = 0, currentMinor = 0, currentPatch = 0;
   int latestMajor = 0, latestMinor = 0, latestPatch = 0;
@@ -111,19 +126,8 @@ bool OtaUpdater::isUpdateNewer() const {
   sscanf(lStr, "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
   sscanf(cStr, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
 
-  /*
-   * Compare major versions.
-   */
   if (latestMajor != currentMajor) return latestMajor > currentMajor;
-
-  /*
-   * Compare minor versions.
-   */
   if (latestMinor != currentMinor) return latestMinor > currentMinor;
-
-  /*
-   * Check patch versions.
-   */
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
 
   // Nếu cùng segments số, nhưng bản hiện tại là pre-release (alpha/beta/rc/dev)
@@ -134,19 +138,15 @@ bool OtaUpdater::isUpdateNewer() const {
     return true;
   }
 
-  // Nếu ở kênh Dev và tag khác nhau, luôn cho phép cập nhật lên bản dev mới
-  if (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV && latestVersion != CROSSPOINT_VERSION) {
-    return true;
-  }
-
   return false;
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx) {
-  if (!isUpdateNewer()) {
-    return UPDATE_OLDER_ERROR;
+  if (otaUrl.empty()) {
+    LOG_ERR("OTA", "Firmware URL is empty");
+    return HTTP_ERROR;
   }
 
   // esp_https_ota is hardwired to esp-tls/mbedTLS, whose precompiled build on this
