@@ -199,6 +199,7 @@ class WebReaderActivity final : public Activity {
 
   std::string getCookiesForUrl(const std::string& url) const;
   void storeCookieFromHeader(const std::string& url, const std::string& setCookieHeader);
+  void clearCookiesForDomain(const std::string& domain);
   void clearAllBrowsingData();
   std::string formatCacheBadge() const;
 

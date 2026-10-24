@@ -94,8 +94,13 @@ void renderBionicText(GfxRenderer& renderer, int fontId, int startX, int startY,
     size_t boldLen = (wordLen <= 3) ? 1 : ((wordLen * 45) / 100 + 1);
     if (boldLen > wordLen) boldLen = wordLen;
 
+    // Không cắt ngang giữa ký tự UTF-8 đa byte (continuation byte có dạng 10xxxxxx)
+    while (boldLen < wordLen && (static_cast<unsigned char>(line[wordStart + boldLen]) & 0xC0) == 0x80) {
+      boldLen++;
+    }
+
     std::string boldPart = line.substr(wordStart, boldLen);
-    std::string restPart = line.substr(wordStart + boldLen, wordLen - boldLen);
+    std::string restPart = (boldLen < wordLen) ? line.substr(wordStart + boldLen, wordLen - boldLen) : std::string();
 
     renderer.drawText(fontId, curX, startY, boldPart.c_str(), true, EpdFontFamily::BOLD);
     curX += renderer.getTextWidth(fontId, boldPart.c_str(), EpdFontFamily::BOLD);
@@ -883,6 +888,14 @@ void WebReaderActivity::storeCookieFromHeader(const std::string& url, const std:
   }
 }
 
+void WebReaderActivity::clearCookiesForDomain(const std::string& domain) {
+  if (domain.empty()) return;
+  auto it = std::remove_if(cookieJar.begin(), cookieJar.end(), [&](const CookieEntry& e) {
+    return e.domain == domain;
+  });
+  cookieJar.erase(it, cookieJar.end());
+}
+
 void WebReaderActivity::clearAllBrowsingData() {
   cleanupCachedImages();
   cookieJar.clear();
@@ -1132,8 +1145,18 @@ void WebReaderActivity::startLoadUrl(const std::string& rawUrl) {
   cacheJustCleared = false;
   pendingHtml.clear();
   pendingBlocks.clear();
+  pendingBlocks.shrink_to_fit();
+  pages.clear();
+  pages.shrink_to_fit();
+  activeHitRegions.clear();
+  activeHitRegions.shrink_to_fit();
+  currentPage = 0;
   pendingImageIndices.clear();
   nextImageToFetch = 0;
+
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
+  }
 
   loadPhase = LoadPhase::StartBar;
   updateProgressImmediate(20);
@@ -1181,7 +1204,7 @@ void WebReaderActivity::stepLoadPipeline() {
     const char* kTempWebFile = "/tmp_web.html";
     size_t downloadedBytes = 0;
 
-    auto performHttpGet = [&](const std::string& initialUrl, const char* outFilePath, std::string& finalUrl) -> int {
+    auto performHttpGet = [&](const std::string& initialUrl, const char* outFilePath, std::string& finalUrl, bool sendCookie = true) -> int {
       std::string urlToTry = initialUrl;
       int status = -1;
       for (int redirectCount = 0; redirectCount < 5; ++redirectCount) {
@@ -1191,17 +1214,18 @@ void WebReaderActivity::stepLoadPipeline() {
         if (mobileMode) {
           http.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1");
           http.addHeader("Sec-CH-UA-Mobile", "?1");
-          http.addHeader("Save-Data", "on");
         } else {
           http.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
         }
-        http.addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-        http.addHeader("Accept-Encoding", "identity");
+        http.addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
         http.addHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
+        http.addHeader("Upgrade-Insecure-Requests", "1");
 
-        const std::string cookies = getCookiesForUrl(urlToTry);
-        if (!cookies.empty()) {
-          http.addHeader("Cookie", cookies);
+        if (sendCookie) {
+          const std::string cookies = getCookiesForUrl(urlToTry);
+          if (!cookies.empty()) {
+            http.addHeader("Cookie", cookies);
+          }
         }
 
         if (!http.begin(urlToTry)) {
@@ -1271,12 +1295,22 @@ void WebReaderActivity::stepLoadPipeline() {
       const size_t ampPos = rawQ.find('&');
       if (ampPos != std::string::npos) rawQ = rawQ.substr(0, ampPos);
       std::string dummyUrl;
-      code = performHttpGet("https://html.duckduckgo.com/html/?q=" + rawQ, kTempWebFile, dummyUrl);
+      code = performHttpGet("https://html.duckduckgo.com/html/?q=" + rawQ, kTempWebFile, dummyUrl, true);
       if (code != 200 || !Storage.exists(kTempWebFile)) {
-        code = performHttpGet("https://www.bing.com/search?q=" + rawQ, kTempWebFile, dummyUrl);
+        code = performHttpGet("https://www.bing.com/search?q=" + rawQ, kTempWebFile, dummyUrl, true);
       }
     } else {
-      code = performHttpGet(fetchUrl, kTempWebFile, resolvedFinal);
+      code = performHttpGet(fetchUrl, kTempWebFile, resolvedFinal, true);
+      // Fallback: nếu có gửi cookie mà bị lỗi hoặc trả về 0 byte, tự động thử lại mà không gửi cookie
+      if ((code != 200 || downloadedBytes == 0) && !getCookiesForUrl(fetchUrl).empty()) {
+        clearCookiesForDomain(extractDomainFromUrl(fetchUrl));
+        std::string retryFinal = fetchUrl;
+        const int retryCode = performHttpGet(fetchUrl, kTempWebFile, retryFinal, false);
+        if (retryCode == 200 && downloadedBytes > 0) {
+          code = retryCode;
+          resolvedFinal = retryFinal;
+        }
+      }
       if (code == 200) {
         currentUrl = resolvedFinal;
       }
@@ -1320,7 +1354,7 @@ void WebReaderActivity::stepLoadPipeline() {
   if (loadPhase == LoadPhase::ParseHtml) {
     cleanupCachedImages();
 
-    // Stream-filter HTML từ file tạm trên thẻ nhớ: loại bỏ script/style/svg giúp giảm 90% RAM
+    // Stream-filter HTML từ file tạm trên thẻ nhớ: loại bỏ script/style/svg an toàn tuyệt đối
     const char* kTempWebFile = "/tmp_web.html";
     std::string cleanHtml;
     bool readOk = false;
@@ -1331,79 +1365,124 @@ void WebReaderActivity::stepLoadPipeline() {
         cleanHtml.reserve(std::min<size_t>(sz, 45000));
         char buf[512];
         bool inTag = false;
+        char tagQuote = 0;
         std::string currentTag;
         bool skipContent = false;
         std::string skipTagName;
-        char quote = 0;
+        size_t matchCloseIdx = 0;
+        bool waitingForCloseAngle = false;
 
         while (f.available() > 0 && cleanHtml.size() < 120000) {
           int n = f.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf));
           if (n <= 0) break;
           for (int i = 0; i < n; ++i) {
             char c = buf[i];
+
+            if (skipContent) {
+              char lowerC = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+              if (waitingForCloseAngle) {
+                if (c == '>') {
+                  waitingForCloseAngle = false;
+                  skipContent = false;
+                  skipTagName.clear();
+                  matchCloseIdx = 0;
+                }
+                continue;
+              }
+
+              std::string target = "</" + skipTagName;
+              if (matchCloseIdx < target.size() && lowerC == target[matchCloseIdx]) {
+                matchCloseIdx++;
+                if (matchCloseIdx == target.size()) {
+                  waitingForCloseAngle = true;
+                }
+              } else if (lowerC == '<') {
+                matchCloseIdx = 1;
+              } else {
+                matchCloseIdx = 0;
+              }
+              continue;
+            }
+
             if (!inTag && c == '<') {
               inTag = true;
+              tagQuote = 0;
               currentTag.clear();
-              quote = 0;
               continue;
             }
             if (inTag) {
-              if (quote != 0) {
-                if (c == quote) quote = 0;
-                currentTag += c;
+              if (tagQuote != 0) {
+                if (c == tagQuote) tagQuote = 0;
+                if (currentTag.size() < 256) currentTag += c;
                 continue;
               } else if (c == '"' || c == '\'') {
-                quote = c;
-                currentTag += c;
+                tagQuote = c;
+                if (currentTag.size() < 256) currentTag += c;
                 continue;
               }
-              if (c != '>') {
-                if (currentTag.size() < 32) currentTag += c;
-                continue;
-              }
-              inTag = false;
-              std::string tagLower = currentTag;
-              std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
-              while (!tagLower.empty() && isspace(static_cast<unsigned char>(tagLower.front()))) {
-                tagLower.erase(0, 1);
-              }
-              if (!tagLower.empty() && tagLower[0] == '/') {
-                std::string closeTag = tagLower.substr(1);
-                size_t sp = closeTag.find_first_of(" \t\r\n");
-                if (sp != std::string::npos) closeTag = closeTag.substr(0, sp);
-                if (skipContent && closeTag == skipTagName) {
-                  skipContent = false;
-                  skipTagName.clear();
-                }
-              } else {
-                size_t sp = tagLower.find_first_of(" \t\r\n");
+              if (c == '>') {
+                inTag = false;
+                tagQuote = 0;
+                std::string tagLower = currentTag;
+                std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+                while (!tagLower.empty() && isspace(static_cast<unsigned char>(tagLower.front()))) tagLower.erase(0, 1);
+                size_t sp = tagLower.find_first_of(" \t\r\n/");
                 std::string openTag = (sp != std::string::npos) ? tagLower.substr(0, sp) : tagLower;
-                if (openTag == "script" || openTag == "style" || openTag == "svg" || openTag == "noscript" || openTag == "iframe") {
+                bool selfClosing = (!tagLower.empty() && tagLower.back() == '/') ||
+                                   (!currentTag.empty() && currentTag.back() == '/');
+
+                if (!selfClosing && (openTag == "script" || openTag == "style" || openTag == "svg" || openTag == "noscript" || openTag == "iframe")) {
                   skipContent = true;
                   skipTagName = openTag;
+                  matchCloseIdx = 0;
+                  waitingForCloseAngle = false;
+                } else {
+                  cleanHtml += '<';
+                  cleanHtml += currentTag;
+                  cleanHtml += '>';
                 }
+                currentTag.clear();
+                continue;
               }
-              if (!skipContent) {
-                cleanHtml += '<';
-                cleanHtml += currentTag;
-                cleanHtml += '>';
-              }
+              if (currentTag.size() < 256) currentTag += c;
               continue;
             }
-            if (!skipContent) {
-              cleanHtml += c;
-            }
+
+            cleanHtml += c;
           }
         }
         readOk = !cleanHtml.empty();
       }
       f.close();
     }
-    Storage.remove(kTempWebFile);
 
     if (readOk && !cleanHtml.empty()) {
       parseHtmlToBlocks(cleanHtml);
       cleanHtml.clear();
+    }
+
+    // Fallback: nếu bộ lọc làm trống trang web, đọc thô trực tiếp từ file HTML tạm
+    if (pendingBlocks.empty()) {
+      HalFile rawF;
+      if (Storage.openFileForRead("WEB", kTempWebFile, rawF)) {
+        std::string rawHtml;
+        char buf[512];
+        while (rawF.available() > 0 && rawHtml.size() < 80000) {
+          int n = rawF.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf));
+          if (n <= 0) break;
+          rawHtml.append(buf, n);
+        }
+        rawF.close();
+        if (!rawHtml.empty()) {
+          parseHtmlToBlocks(rawHtml);
+        }
+      }
+    }
+    Storage.remove(kTempWebFile);
+
+    // Giới hạn tối đa 250 khối văn bản để bảo vệ an toàn tuyệt đối bộ nhớ RAM của thiết bị
+    if (pendingBlocks.size() > 250) {
+      pendingBlocks.resize(250);
     }
 
     if (pendingBlocks.empty()) {
@@ -1675,8 +1754,55 @@ void WebReaderActivity::parseHtmlToBlocks(const std::string& html) {
   }
   const size_t parseLimit = std::min(html.size(), parseStart + 350000);
 
+  size_t matchCloseIdx = 0;
+  bool waitingForCloseAngle = false;
+
   for (size_t i = parseStart; i < parseLimit; ++i) {
     const char c = html[i];
+
+    if (skipContent) {
+      if (jsEnabled && skipTagName == "script" && scriptBuffer.size() < 12000) {
+        scriptBuffer += c;
+      }
+      char lowerC = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+      if (waitingForCloseAngle) {
+        if (c == '>') {
+          waitingForCloseAngle = false;
+          skipContent = false;
+          matchCloseIdx = 0;
+          if (jsEnabled && skipTagName == "script" && !scriptBuffer.empty()) {
+            for (const char* key : {"\"description\":\"", "\"articleBody\":\"", "\"headline\":\""}) {
+              size_t kpos = scriptBuffer.find(key);
+              if (kpos != std::string::npos) {
+                size_t vstart = kpos + std::strlen(key);
+                size_t vend = scriptBuffer.find('"', vstart);
+                if (vend != std::string::npos && vend - vstart > 20) {
+                  std::string val = scriptBuffer.substr(vstart, std::min<size_t>(vend - vstart, 600));
+                  rawBlocks.push_back({ItemType::Text, decodeHtmlEntities(val), "", "", "", 0, 0});
+                }
+              }
+            }
+            scriptBuffer.clear();
+          }
+          skipTagName.clear();
+        }
+        continue;
+      }
+
+      std::string target = "</" + skipTagName;
+      if (matchCloseIdx < target.size() && lowerC == target[matchCloseIdx]) {
+        matchCloseIdx++;
+        if (matchCloseIdx == target.size()) {
+          waitingForCloseAngle = true;
+        }
+      } else if (lowerC == '<') {
+        matchCloseIdx = 1;
+      } else {
+        matchCloseIdx = 0;
+      }
+      continue;
+    }
+
     if (!inTag && i + 3 < parseLimit && c == '<' && html[i + 1] == '!' && html[i + 2] == '-' && html[i + 3] == '-') {
       const size_t commentEnd = html.find("-->", i + 4);
       if (commentEnd != std::string::npos) {
@@ -1692,17 +1818,14 @@ void WebReaderActivity::parseHtmlToBlocks(const std::string& html) {
       continue;
     }
     if (inTag) {
-      const bool trackQuotes = !skipContent || (skipTagName != "script" && skipTagName != "style");
-      if (trackQuotes) {
-        if (tagQuote != 0) {
-          if (c == tagQuote) tagQuote = 0;
-          currentTag += c;
-          continue;
-        } else if (c == '"' || c == '\'') {
-          tagQuote = c;
-          currentTag += c;
-          continue;
-        }
+      if (tagQuote != 0) {
+        if (c == tagQuote) tagQuote = 0;
+        currentTag += c;
+        continue;
+      } else if (c == '"' || c == '\'') {
+        tagQuote = c;
+        currentTag += c;
+        continue;
       }
       if (c != '>') {
         currentTag += c;
@@ -1710,6 +1833,7 @@ void WebReaderActivity::parseHtmlToBlocks(const std::string& html) {
       }
 
       inTag = false;
+      tagQuote = 0;
       std::string tagLower = currentTag;
       std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
       while (!tagLower.empty() && isspace(static_cast<unsigned char>(tagLower.front()))) {
@@ -1718,84 +1842,48 @@ void WebReaderActivity::parseHtmlToBlocks(const std::string& html) {
 
       if (!tagLower.empty() && tagLower[0] == '/') {
         std::string closeTag = tagLower.substr(1);
-        const size_t sp = closeTag.find_first_of(" \t\r\n");
+        const size_t sp = closeTag.find_first_of(" \t\r\n/");
         if (sp != std::string::npos) closeTag = closeTag.substr(0, sp);
 
-        if (skipContent && closeTag == skipTagName) {
-          if (--skipDepth <= 0) {
-            skipContent = false;
-            skipDepth = 0;
-            if (jsEnabled && closeTag == "script" && !scriptBuffer.empty()) {
-              for (const char* key : {"\"description\":\"", "\"articleBody\":\"", "\"headline\":\""}) {
-                size_t kpos = scriptBuffer.find(key);
-                if (kpos != std::string::npos) {
-                  size_t vstart = kpos + std::strlen(key);
-                  size_t vend = scriptBuffer.find('"', vstart);
-                  if (vend != std::string::npos && vend - vstart > 20) {
-                    std::string val = scriptBuffer.substr(vstart, std::min<size_t>(vend - vstart, 600));
-                    rawBlocks.push_back({ItemType::Text, decodeHtmlEntities(val), "", "", "", 0, 0});
-                  }
-                }
-              }
-            }
-            scriptBuffer.clear();
-          }
-          continue;
-        }
-
-        if (!skipContent) {
-          if (closeTag == "a") {
-            if (!inlineParagraphLink) {
-              flushTextBlock();
-              activeLinkUrl.clear();
-            }
-            inlineParagraphLink = false;
-          } else if (closeTag == "picture") {
-            pendingPictureSrc.clear();
-          } else if (closeTag == "h1" || closeTag == "h2" || closeTag == "h3" || closeTag == "h4") {
+        if (closeTag == "a") {
+          if (!inlineParagraphLink) {
             flushTextBlock();
-            inHeading = false;
-          } else if (closeTag == "p") {
-            flushTextBlock();
-            inParagraph = false;
-            inlineParagraphLink = false;
             activeLinkUrl.clear();
-          } else if (closeTag == "article") {
-            flushTextBlock();
-            if (!rawBlocks.empty() && rawBlocks.back().type != ItemType::Divider) {
-              rawBlocks.push_back({ItemType::Divider, "", "", "", "", 0, 0});
-            }
-          } else if (closeTag == "div" || closeTag == "li" || closeTag == "tr" ||
-                     closeTag == "section" || closeTag == "td") {
-            flushTextBlock();
           }
+          inlineParagraphLink = false;
+        } else if (closeTag == "picture") {
+          pendingPictureSrc.clear();
+        } else if (closeTag == "h1" || closeTag == "h2" || closeTag == "h3" || closeTag == "h4") {
+          flushTextBlock();
+          inHeading = false;
+        } else if (closeTag == "p") {
+          flushTextBlock();
+          inParagraph = false;
+          inlineParagraphLink = false;
+          activeLinkUrl.clear();
+        } else if (closeTag == "article") {
+          flushTextBlock();
+          if (!rawBlocks.empty() && rawBlocks.back().type != ItemType::Divider) {
+            rawBlocks.push_back({ItemType::Divider, "", "", "", "", 0, 0});
+          }
+        } else if (closeTag == "div" || closeTag == "li" || closeTag == "tr" ||
+                   closeTag == "section" || closeTag == "td") {
+          flushTextBlock();
         }
       } else {
         const size_t spacePos = tagLower.find_first_of(" \t\r\n/");
         std::string tagName = (spacePos != std::string::npos) ? tagLower.substr(0, spacePos) : tagLower;
-        const bool selfClosing = !tagLower.empty() && tagLower.back() == '/';
+        const bool selfClosing = (!tagLower.empty() && tagLower.back() == '/') ||
+                                 (!currentTag.empty() && currentTag.back() == '/');
 
-        if (skipContent) {
-          if (!selfClosing && tagName == skipTagName && skipTagName != "script" && skipTagName != "style") {
-            skipDepth++;
-          }
-          continue;
-        }
-
-        if (tagName == "script" || tagName == "style" || tagName == "svg" ||
-            tagName == "noscript" || tagName == "footer" || tagName == "head" ||
-            tagName == "nav" || tagName == "header" || tagName == "aside" || tagName == "menu" ||
-            tagName == "select" || tagName == "button" || tagName == "sup" || tagName == "cite" ||
-            (isWiki && tagName == "table" && currentUrl.find("Trang_Ch") == std::string::npos)) {
-          if (tagName != "sup") {
-            flushTextBlock();
-          }
-          if (!selfClosing) {
-            skipContent = true;
-            skipTagName = tagName;
-            skipDepth = 1;
-            scriptBuffer.clear();
-          }
+        if (!selfClosing && (tagName == "script" || tagName == "style" || tagName == "svg" ||
+            tagName == "noscript" || (isWiki && tagName == "table" && currentUrl.find("Trang_Ch") == std::string::npos))) {
+          flushTextBlock();
+          skipContent = true;
+          skipTagName = tagName;
+          matchCloseIdx = 0;
+          waitingForCloseAngle = false;
+          scriptBuffer.clear();
         } else if (tagName == "a") {
           bool hasPriorParagraphText = false;
           if (inParagraph) {
@@ -1941,18 +2029,12 @@ void WebReaderActivity::parseHtmlToBlocks(const std::string& html) {
       continue;
     }
 
-    if (skipContent) {
-      if (jsEnabled && skipTagName == "script" && scriptBuffer.size() < 24000) {
-        scriptBuffer += c;
+    if (isspace(static_cast<unsigned char>(c))) {
+      if (!currentText.empty() && currentText.back() != ' ') {
+        currentText += ' ';
       }
     } else {
-      if (isspace(static_cast<unsigned char>(c))) {
-        if (!currentText.empty() && currentText.back() != ' ') {
-          currentText += ' ';
-        }
-      } else {
-        currentText += c;
-      }
+      currentText += c;
     }
   }
   flushTextBlock();
@@ -2063,6 +2145,9 @@ void WebReaderActivity::layoutBlocksToPages() {
                renderer.getTextWidth(fontId, (word + "...").c_str(), fontStyle) > availW) {
           word.pop_back();
           while (!word.empty() && (static_cast<unsigned char>(word.back()) & 0xC0) == 0x80) {
+            word.pop_back();
+          }
+          if (!word.empty() && (static_cast<unsigned char>(word.back()) & 0x80) != 0) {
             word.pop_back();
           }
         }
@@ -2849,6 +2934,16 @@ void WebReaderActivity::renderViewing() {
         if (item.imageCachePath.empty() || !Storage.exists(item.imageCachePath.c_str())) {
           continue;
         }
+        HalFile imgF;
+        if (!Storage.openFileForRead("WEB", item.imageCachePath.c_str(), imgF)) {
+          continue;
+        }
+        const size_t imgSz = imgF.size();
+        imgF.close();
+        if (imgSz < 256) {
+          continue;
+        }
+
         const int imgW = item.imageW > 0 ? item.imageW : TARGET_IMG_W;
         const int imgH = item.imageH > 0 ? item.imageH : TARGET_IMG_H;
         const int imgX = (screenW - 10 - imgW) / 2;

@@ -337,7 +337,112 @@ int EpubReaderActivity::bookPercentFor(const ChapterPosition& position) const {
 
 void EpubReaderActivity::openReaderMenu() {
   pendingManualTurn = 0;
-  openOverlay(Overlay::Toolbar);
+  const ChapterPosition position = chapterPosition();
+  const int bookProgressPercent = bookPercentFor(position);
+  const float bookProgress = static_cast<float>(bookProgressPercent) / 100.0f;
+  const uint32_t chapterPage = position.displayPage();
+  const uint32_t chapterPageCount = position.totalPages;
+  const bool chapterPageCountEstimated = (section && (section->isBuilding() || section->isPartial()));
+
+  auto drawer = std::make_unique<EpubReaderDrawerActivity>(
+      renderer, mappedInput, epub,
+      touchReaderPreviewModel.get(),
+      bookProgress, chapterPage, chapterPageCount, chapterPageCountEstimated,
+      !currentPageFootnotes.empty(),
+      SETTINGS.dictionaryName[0] != '\0',
+      !cachedBookmarks.empty(),
+      CLIPPINGS.hasClippings(),
+      currentPageBookmarked,
+      false, // isBookCompleted
+      false, // showsTimeRemaining
+      false, // tracksReadingStats
+      false, // tracksBookStats
+      0, 0,  // stableCurrentPage, stablePageCount
+      0, false, // auto page turn
+      nullptr, nullptr, // saveOptionsCallback
+      nullptr, nullptr, // saveGlobalSettingsCallback
+      nullptr, nullptr, // beginGlobalSettingsEditCallback
+      nullptr, nullptr, // endGlobalSettingsEditCallback
+      "", 12, false, nullptr, nullptr, // dictionary font
+      touchReaderDrawerState);
+
+  startActivityForResult(std::move(drawer), [this](const ActivityResult& result) {
+    if (const auto* menu = std::get_if<MenuResult>(&result.data)) {
+      touchReaderDrawerState = menu->drawerState;
+      if (SETTINGS.orientation != menu->orientation) {
+        applyOrientation(menu->orientation);
+      }
+      toggleAutoPageTurn(menu->pageTurnOption);
+      if (menu->settingsChanged) {
+        RenderLock lock;
+        if (auto* fcm = renderer.getFontCacheManager()) {
+          fcm->releaseSdFontCaches();
+        }
+        sdFontSystem.ensureLoaded(renderer);
+        section.reset();
+        requestUpdate();
+      }
+      if (!result.isCancelled) {
+        const auto action = static_cast<EpubReaderMenuAction>(menu->action);
+        switch (action) {
+          case EpubReaderMenuAction::SELECT_CHAPTER:
+            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER);
+            break;
+          case EpubReaderMenuAction::FOOTNOTES:
+            openFootnoteSelect(true);
+            break;
+          case EpubReaderMenuAction::GO_TO_PERCENT:
+            jumpToPercent(menu->drawerValue > 0 ? menu->drawerValue / 100 : bookPercentFor(chapterPosition()));
+            break;
+          case EpubReaderMenuAction::BOOKMARK_TOGGLE:
+            addBookmark();
+            break;
+          case EpubReaderMenuAction::VIEW_BOOKMARKS:
+            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::BOOKMARKS);
+            break;
+          case EpubReaderMenuAction::SAVE_CLIPPING:
+            startClipSelection();
+            break;
+          case EpubReaderMenuAction::VIEW_CLIPPINGS:
+            openClippings();
+            break;
+          case EpubReaderMenuAction::LOOKUP:
+            openDictionaryWordSelect();
+            break;
+          case EpubReaderMenuAction::GO_HOME:
+            onGoHome();
+            break;
+          case EpubReaderMenuAction::SYNC:
+            launchKOReaderSync();
+            break;
+          case EpubReaderMenuAction::DISPLAY_QR:
+            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::DISPLAY_QR);
+            break;
+          case EpubReaderMenuAction::SCREENSHOT:
+            pendingScreenshot = true;
+            requestUpdate();
+            break;
+          case EpubReaderMenuAction::DELETE_CACHE:
+            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::DELETE_CACHE);
+            break;
+          case EpubReaderMenuAction::STATUS_BAR_SETTINGS:
+            startActivityForResult(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput),
+                                   [this](const ActivityResult&) { openReaderMenu(); });
+            break;
+          default:
+            requestUpdate();
+            break;
+        }
+      } else {
+        requestUpdate();
+      }
+      if (menu->reopenDrawer) {
+        openReaderMenu();
+      }
+      return;
+    }
+    requestUpdate();
+  });
 }
 
 // Runs on the render task, under its lock, right before every chapter build. The page turner's
@@ -2666,7 +2771,7 @@ static_assert(std::size(kAlignIds) == CrossPointSettings::PARAGRAPH_ALIGNMENT_CO
 }  // namespace
 
 bool EpubReaderActivity::usesToolbarMenu() const {
-  return true;
+  return SETTINGS.readerMenuStyle == CrossPointSettings::READER_MENU_TOOLBAR;
 }
 
 std::string EpubReaderActivity::currentChapterTitle() const {

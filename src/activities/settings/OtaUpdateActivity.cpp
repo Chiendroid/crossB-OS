@@ -4,12 +4,109 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include <algorithm>
+
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
+
+namespace {
+void drawSimpleButton(GfxRenderer& renderer, const Rect& r, const char* label, bool bold = false) {
+  renderer.drawRect(r.x, r.y, r.width, r.height);
+  const auto fontId = UI_10_FONT_ID;
+  const int textW = renderer.getTextWidth(fontId, label);
+  const int textH = renderer.getLineHeight(fontId);
+  const int textX = r.x + (r.width - textW) / 2;
+  const int textY = r.y + (r.height - textH) / 2;
+  renderer.drawText(fontId, textX, textY, label, false, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+}
+}  // namespace
+
+void OtaUpdateActivity::prepareChangelogLines() {
+  changelogLines.clear();
+  scrollLine = 0;
+
+  std::string raw = updater.getReleaseNotes();
+  if (raw.empty()) {
+    raw = OtaUpdater::getDefaultCurrentChangelog();
+  }
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int maxLineWidth = pageWidth - (metrics.contentSidePadding * 2) - 24;
+
+  size_t start = 0;
+  while (start < raw.size()) {
+    size_t end = raw.find('\n', start);
+    std::string line = (end == std::string::npos) ? raw.substr(start) : raw.substr(start, end - start);
+    if (end == std::string::npos) {
+      start = raw.size();
+    } else {
+      start = end + 1;
+    }
+
+    if (line.empty()) {
+      changelogLines.push_back("");
+      continue;
+    }
+
+    std::string currentLine;
+    size_t wordStart = 0;
+    while (wordStart < line.size()) {
+      size_t wordEnd = line.find(' ', wordStart);
+      std::string word =
+          (wordEnd == std::string::npos) ? line.substr(wordStart) : line.substr(wordStart, wordEnd - wordStart);
+      if (wordEnd == std::string::npos) {
+        wordStart = line.size();
+      } else {
+        wordStart = wordEnd + 1;
+      }
+
+      std::string testLine = currentLine.empty() ? word : currentLine + " " + word;
+      if (renderer.getTextWidth(UI_10_FONT_ID, testLine.c_str()) > maxLineWidth && !currentLine.empty()) {
+        changelogLines.push_back(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (!currentLine.empty()) {
+      changelogLines.push_back(currentLine);
+    }
+  }
+}
+
+void OtaUpdateActivity::startCheckForUpdate() {
+  {
+    RenderLock lock(*this);
+    state = CHECKING_FOR_UPDATE;
+  }
+  requestUpdateAndWait();
+
+  const auto res = updater.checkForUpdate();
+  if (res == OtaUpdater::HTTP_ERROR || res == OtaUpdater::JSON_PARSE_ERROR || res == OtaUpdater::OOM_ERROR) {
+    LOG_DBG("OTA", "Update check failed: %d", res);
+    {
+      RenderLock lock(*this);
+      failedDetail = (res == OtaUpdater::HTTP_ERROR) ? "Loi ket noi mang den may chu" : "Loi phan tich du lieu cap nhat";
+      state = FAILED;
+    }
+    requestUpdate();
+    return;
+  }
+
+  prepareChangelogLines();
+
+  {
+    RenderLock lock(*this);
+    state = VIEW_UPDATE;
+  }
+  requestUpdate();
+}
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -18,68 +115,16 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
-  LOG_DBG("OTA", "WiFi connected, checking for update");
-
-  {
-    RenderLock lock(*this);
-    state = CHECKING_FOR_UPDATE;
-  }
-  requestUpdateAndWait();
-
-  const auto res = updater.checkForUpdate();
-  // NO_UPDATE here means the release carries no firmware asset for this board
-  // (expected until per-board assets are published) — not a failure.
-  if (res == OtaUpdater::NO_UPDATE) {
-    LOG_DBG("OTA", "No firmware asset for this board in latest release");
-    {
-      RenderLock lock(*this);
-      state = NO_UPDATE;
-    }
-    return;
-  }
-  if (res != OtaUpdater::OK) {
-    LOG_DBG("OTA", "Update check failed: %d", res);
-    {
-      RenderLock lock(*this);
-      state = FAILED;
-    }
-    return;
-  }
-
-  if (!updater.isUpdateNewer()) {
-    LOG_DBG("OTA", "No new update available");
-    {
-      RenderLock lock(*this);
-      state = NO_UPDATE;
-    }
-    return;
-  }
-
-  {
-    RenderLock lock(*this);
-    state = WAITING_CONFIRMATION;
-  }
-  const char* options[] = {tr(STR_CANCEL), tr(STR_UPDATE)};
-  // Default the selection to Update so the hardware Confirm button installs,
-  // matching the pre-popup layout (Back = cancel, Confirm = update).
-  confirmPopup.show(tr(STR_NEW_UPDATE), options, 2, 1, [this](const int idx) {
-    if (idx == 1) {
-      runUpdateInstall();
-    } else {
-      finish();
-    }
-  });
-  requestUpdate();
+  LOG_DBG("OTA", "WiFi connected, starting check for update");
+  startCheckForUpdate();
 }
 
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
 
-  // Turn on WiFi immediately
   LOG_DBG("OTA", "Turning on WiFi...");
   WiFi.mode(WIFI_STA);
 
-  // Launch WiFi selection subactivity
   LOG_DBG("OTA", "Launching WifiSelectionActivity...");
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
@@ -88,10 +133,6 @@ void OtaUpdateActivity::onEnter() {
 void OtaUpdateActivity::onExit() {
   Activity::onExit();
 
-  // Success path reboots via the SHUTTING_DOWN state's plain ESP.restart()
-  // (loop() above) so the new firmware boots normally. Back-out paths land
-  // here with wifi still active; silent-restart to free the LWIP/mbedTLS
-  // fragmentation, same as the other wifi activities.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
@@ -114,7 +155,6 @@ void OtaUpdateActivity::render(RenderLock&&) {
   if (state == UPDATE_IN_PROGRESS) {
     LOG_DBG("OTA", "Update progress: %d / %d", updater.getProcessedSize(), updater.getTotalSize());
     updaterProgress = static_cast<float>(updater.getProcessedSize()) / static_cast<float>(updater.getTotalSize());
-    // Only update every 2% at the most
     if (static_cast<int>(updaterProgress * 50) == lastUpdaterPercentage / 2) {
       return;
     }
@@ -123,18 +163,101 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
-  } else if (state == WAITING_CONFIRMATION) {
-    // Version info sits in the upper part of the screen so the centered
-    // Cancel/Update popup doesn't cover it (same layout as ConfirmationActivity).
-    const int infoTop = pageHeight / 6;
-    char chanBuf[64];
-    snprintf(chanBuf, sizeof(chanBuf), "Kênh cập nhật: %s",
-             SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Phát triển (Dev)" : "Ổn định (Release)");
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop - height - metrics.verticalSpacing, chanBuf);
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
+  } else if (state == VIEW_UPDATE) {
+    int y = metrics.topPadding + metrics.headerHeight + 6;
+
+    char verBuf[96];
+    snprintf(verBuf, sizeof(verBuf), "Phien ban hien tai: %s", CROSSPOINT_VERSION);
+    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, verBuf);
+    y += height + 4;
+
+    const char* chanName =
+        (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) ? "Phat trien (Dev)" : "On dinh (Release)";
+    char chanBuf[96];
+    snprintf(chanBuf, sizeof(chanBuf), "Kenh cap nhat: %s", chanName);
+    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, chanBuf);
+    y += height + 4;
+
+    if (updater.isUpdateNewer()) {
+      char newVerBuf[96];
+      snprintf(newVerBuf, sizeof(newVerBuf), "Co ban cap nhat moi: %s", updater.getLatestVersion().c_str());
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, newVerBuf, false, EpdFontFamily::BOLD);
+    } else {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, "Ban dang o phien ban moi nhat.", false,
+                        EpdFontFamily::BOLD);
+    }
+    y += height + 6;
+
+    renderer.drawLine(metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding, y);
+    y += 8;
+
+    if (updater.isUpdateNewer()) {
+      std::string title = "Nhat ky thay doi (" + updater.getLatestVersion() + "):";
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), false, EpdFontFamily::BOLD);
+    } else {
+      std::string title = "Nhat ky thay doi (" + std::string(CROSSPOINT_VERSION) + "):";
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), false, EpdFontFamily::BOLD);
+    }
+    y += height + 6;
+
+    const int bottomButtonsHeight = updater.isUpdateNewer() ? 92 : 84;
+    const int bottomAreaY = pageHeight - metrics.buttonHintsHeight - bottomButtonsHeight;
+    const int boxHeight = std::max(60, bottomAreaY - y - 8);
+
+    changelogBoxRect = Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, boxHeight};
+    renderer.drawRect(changelogBoxRect.x, changelogBoxRect.y, changelogBoxRect.width, changelogBoxRect.height);
+
+    const int lineSpacing = height + 2;
+    const int maxVisibleLines = std::max(1, (boxHeight - 12) / lineSpacing);
+    if (scrollLine > static_cast<int>(changelogLines.size()) - maxVisibleLines) {
+      scrollLine = std::max(0, static_cast<int>(changelogLines.size()) - maxVisibleLines);
+    }
+    const int startLine = scrollLine;
+    const int endLine = std::min(startLine + maxVisibleLines, static_cast<int>(changelogLines.size()));
+
+    int textY = changelogBoxRect.y + 6;
+    for (int i = startLine; i < endLine; i++) {
+      renderer.drawText(UI_10_FONT_ID, changelogBoxRect.x + 8, textY, changelogLines[i].c_str());
+      textY += lineSpacing;
+    }
+
+    if (changelogLines.size() > static_cast<size_t>(maxVisibleLines)) {
+      char indBuf[32];
+      snprintf(indBuf, sizeof(indBuf), "[%d/%d]", endLine, static_cast<int>(changelogLines.size()));
+      const int indW = renderer.getTextWidth(UI_10_FONT_ID, indBuf);
+      renderer.drawText(UI_10_FONT_ID, changelogBoxRect.x + changelogBoxRect.width - indW - 6,
+                        changelogBoxRect.y + changelogBoxRect.height - height - 4, indBuf);
+    }
+
+    const int btnGap = 8;
+    const int contentW = pageWidth - metrics.contentSidePadding * 2;
+    if (updater.isUpdateNewer()) {
+      updateButtonRect = Rect{metrics.contentSidePadding, bottomAreaY, contentW, 40};
+      drawSimpleButton(renderer, updateButtonRect, "CAP NHAT NGAY", true);
+
+      const int halfW = (contentW - btnGap) / 2;
+      changeChannelButtonRect = Rect{metrics.contentSidePadding, bottomAreaY + 46, halfW, 36};
+      drawSimpleButton(renderer, changeChannelButtonRect, "Doi kenh");
+
+      retryButtonRect = Rect{metrics.contentSidePadding + halfW + btnGap, bottomAreaY + 46, halfW, 36};
+      drawSimpleButton(renderer, retryButtonRect, "Kiem tra lai");
+      backButtonRect = Rect{0, 0, 0, 0};
+    } else {
+      updateButtonRect = Rect{0, 0, 0, 0};
+      const int halfW = (contentW - btnGap) / 2;
+      changeChannelButtonRect = Rect{metrics.contentSidePadding, bottomAreaY, halfW, 38};
+      drawSimpleButton(renderer, changeChannelButtonRect, "Doi kenh");
+
+      retryButtonRect = Rect{metrics.contentSidePadding + halfW + btnGap, bottomAreaY, halfW, 38};
+      drawSimpleButton(renderer, retryButtonRect, "Kiem tra lai");
+
+      backButtonRect = Rect{metrics.contentSidePadding, bottomAreaY + 44, contentW, 34};
+      drawSimpleButton(renderer, backButtonRect, "Quay lai");
+    }
+
+    const auto labels = mappedInput.mapLabels("Quay lai", updater.isUpdateNewer() ? "Cap nhat" : "Doi kenh",
+                                              "Cuon len", "Cuon xuong");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     if (confirmPopup.processRender(renderer, mappedInput)) return;
   } else if (state == UPDATE_IN_PROGRESS) {
@@ -147,22 +270,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
         static_cast<int>(updaterProgress * 100), 100);
 
     y += metrics.progressBarHeight + metrics.verticalSpacing;
-    // Percent label is drawn by BaseTheme::drawProgressBar; this slot is left intentionally empty
-    // so the bytes line below stays at the same Y it was at when the activity drew its own percent.
     y += height + metrics.verticalSpacing;
     renderer.drawCenteredText(
         UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
-  } else if (state == NO_UPDATE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top - height, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
-    char chanBuf[64];
-    snprintf(chanBuf, sizeof(chanBuf), "Kênh hiện tại: %s",
-             SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Phát triển (Dev)" : "Ổn định (Release)");
-    renderer.drawCenteredText(UI_10_FONT_ID, top + metrics.verticalSpacing, chanBuf);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height * 2 + metrics.verticalSpacing * 2,
-                              "Bấm Xác nhận (Confirm) để đổi kênh");
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Đổi kênh", "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
     if (failedDetail != nullptr) {
@@ -191,9 +302,6 @@ void OtaUpdateActivity::runUpdateInstall() {
   requestUpdateAndWait();
   const auto res = updater.installUpdate(
       [](void* ctx) {
-        // immediate=true notifies the render task directly. The default deferred path only
-        // sets a flag consumed at the end of ActivityManager::loop(), which never runs while
-        // installUpdate() blocks this task.
         static_cast<OtaUpdateActivity*>(ctx)->requestUpdate(true);
       },
       this);
@@ -214,7 +322,6 @@ void OtaUpdateActivity::runUpdateInstall() {
     state = FINISHED;
   }
   requestUpdateAndWait();
-  // Hold the completion screen briefly so the user sees it, then restart.
   delay(3000);
   {
     RenderLock lock(*this);
@@ -223,10 +330,123 @@ void OtaUpdateActivity::runUpdateInstall() {
 }
 
 void OtaUpdateActivity::loop() {
-  if (state == WAITING_CONFIRMATION) {
-    if (confirmPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
-    // Popup dismissed without a selection (Back button or tap outside): cancel.
-    finish();
+  if (state == VIEW_UPDATE) {
+    if (confirmPopup.isActive()) {
+      confirmPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+      return;
+    }
+
+    int x = 0;
+    int y = 0;
+    const bool tapped = mappedInput.wasScreenTapped(x, y);
+
+    if (tapped) {
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      // Back button on header
+      if (y < metrics.topPadding + metrics.headerHeight && x < 80) {
+        finish();
+        return;
+      }
+
+      // Update button
+      if (updater.isUpdateNewer() && updateButtonRect.width > 0 &&
+          x >= updateButtonRect.x && x <= updateButtonRect.x + updateButtonRect.width &&
+          y >= updateButtonRect.y && y <= updateButtonRect.y + updateButtonRect.height) {
+        const char* options[] = {tr(STR_CANCEL), tr(STR_UPDATE)};
+        confirmPopup.showMessage("Xac nhan cap nhat",
+                                 ("Tai va cai dat phien ban " + updater.getLatestVersion() + " ngay bay gio?").c_str(),
+                                 options, 2, 1, [this](const int idx) {
+                                   if (idx == 1) {
+                                     runUpdateInstall();
+                                   }
+                                 });
+        requestUpdate();
+        return;
+      }
+
+      // Change channel button
+      if (changeChannelButtonRect.width > 0 &&
+          x >= changeChannelButtonRect.x && x <= changeChannelButtonRect.x + changeChannelButtonRect.width &&
+          y >= changeChannelButtonRect.y && y <= changeChannelButtonRect.y + changeChannelButtonRect.height) {
+        SETTINGS.otaChannel = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV)
+                                  ? CrossPointSettings::OTA_CHANNEL_RELEASE
+                                  : CrossPointSettings::OTA_CHANNEL_DEV;
+        SETTINGS.saveToFile();
+        startCheckForUpdate();
+        return;
+      }
+
+      // Retry button
+      if (retryButtonRect.width > 0 &&
+          x >= retryButtonRect.x && x <= retryButtonRect.x + retryButtonRect.width &&
+          y >= retryButtonRect.y && y <= retryButtonRect.y + retryButtonRect.height) {
+        startCheckForUpdate();
+        return;
+      }
+
+      // Back button in bottom area
+      if (backButtonRect.width > 0 &&
+          x >= backButtonRect.x && x <= backButtonRect.x + backButtonRect.width &&
+          y >= backButtonRect.y && y <= backButtonRect.y + backButtonRect.height) {
+        finish();
+        return;
+      }
+
+      // Scroll changelog box
+      if (changelogBoxRect.width > 0 &&
+          x >= changelogBoxRect.x && x <= changelogBoxRect.x + changelogBoxRect.width &&
+          y >= changelogBoxRect.y && y <= changelogBoxRect.y + changelogBoxRect.height) {
+        if (y < changelogBoxRect.y + changelogBoxRect.height / 2) {
+          scrollLine = std::max(0, scrollLine - 3);
+        } else {
+          scrollLine += 3;
+        }
+        requestUpdate();
+        return;
+      }
+    }
+
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      finish();
+      return;
+    }
+
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      if (updater.isUpdateNewer()) {
+        const char* options[] = {tr(STR_CANCEL), tr(STR_UPDATE)};
+        confirmPopup.showMessage("Xac nhan cap nhat",
+                                 ("Tai va cai dat phien ban " + updater.getLatestVersion() + " ngay bay gio?").c_str(),
+                                 options, 2, 1, [this](const int idx) {
+                                   if (idx == 1) {
+                                     runUpdateInstall();
+                                   }
+                                 });
+        requestUpdate();
+      } else {
+        SETTINGS.otaChannel = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV)
+                                  ? CrossPointSettings::OTA_CHANNEL_RELEASE
+                                  : CrossPointSettings::OTA_CHANNEL_DEV;
+        SETTINGS.saveToFile();
+        startCheckForUpdate();
+      }
+      return;
+    }
+
+    if (mappedInput.wasPressed(MappedInputManager::Button::NavPrevious) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      if (scrollLine > 0) {
+        scrollLine = std::max(0, scrollLine - 3);
+        requestUpdate();
+      }
+      return;
+    }
+
+    if (mappedInput.wasPressed(MappedInputManager::Button::NavNext) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      scrollLine += 3;
+      requestUpdate();
+      return;
+    }
     return;
   }
 
@@ -234,28 +454,6 @@ void OtaUpdateActivity::loop() {
     int x = 0;
     int y = 0;
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) || mappedInput.wasScreenTapped(x, y)) {
-      finish();
-    }
-    return;
-  }
-
-  if (state == NO_UPDATE) {
-    int x = 0;
-    int y = 0;
-    const bool tapped = mappedInput.wasScreenTapped(x, y);
-    const auto pageWidth = renderer.getScreenWidth();
-    const auto pageHeight = renderer.getScreenHeight();
-
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
-        (tapped && (y > pageHeight / 3 && y < pageHeight - 60 || (y >= pageHeight - 60 && x > pageWidth / 2)))) {
-      SETTINGS.otaChannel = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV)
-                                ? CrossPointSettings::OTA_CHANNEL_RELEASE
-                                : CrossPointSettings::OTA_CHANNEL_DEV;
-      SETTINGS.saveToFile();
-      onWifiSelectionComplete(true);
-      return;
-    }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back) || tapped) {
       finish();
     }
     return;

@@ -858,10 +858,24 @@ bool Epub::generateCoverBmp(bool cropped, bool originalThresholds) const {
 std::string Epub::getThumbBmpPath() const { return cachePath + "/thumb_[HEIGHT].bmp"; }
 std::string Epub::getThumbBmpPath(int height) const { return cachePath + "/thumb_" + std::to_string(height) + ".bmp"; }
 
+namespace {
+bool isFileValidBmp(const std::string& path) {
+  HalFile f;
+  if (!Storage.openFileForRead("EBP", path, f)) return false;
+  const size_t sz = f.size();
+  f.close();
+  if (sz < 54) {
+    Storage.remove(path.c_str());
+    return false;
+  }
+  return true;
+}
+}  // namespace
+
 bool Epub::generateThumbBmp(int height) const {
-  // Already generated, return true
-  if (Storage.exists(getThumbBmpPath(height).c_str())) {
-    return true;
+  const std::string thumbPath = getThumbBmpPath(height);
+  if (Storage.exists(thumbPath.c_str())) {
+    if (isFileValidBmp(thumbPath)) return true;
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -873,7 +887,10 @@ bool Epub::generateThumbBmp(int height) const {
 }
 
 bool Epub::generateThumbBmpFromSource(int height) {
-  if (Storage.exists(getThumbBmpPath(height).c_str())) return true;
+  const std::string thumbPath = getThumbBmpPath(height);
+  if (Storage.exists(thumbPath.c_str())) {
+    if (isFileValidBmp(thumbPath)) return true;
+  }
   if (Txt::isTxtOrMd(filepath)) {
     std::string companionCover = Txt::findCompanionCoverImage(filepath);
     if (companionCover.empty()) return false;
@@ -971,12 +988,8 @@ bool Epub::generateThumbBmpForCover(int height, const std::string& coverImageHre
     return success;
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
+    return false;
   }
-
-  // Write an empty bmp file to avoid generation attempts in the future
-  HalFile thumbBmp;
-  Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp);
-  return false;
 }
 
 uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size, const bool trailingNullByte) const {

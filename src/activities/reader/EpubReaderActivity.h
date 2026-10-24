@@ -13,6 +13,7 @@
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "ClipSelectionActivity.h"
+#include "EpubReaderDrawerActivity.h"
 #include "EpubReaderMenuActivity.h"
 #include "EpubReaderMenuModel.h"
 #include "TouchReaderPreviewModel.h"

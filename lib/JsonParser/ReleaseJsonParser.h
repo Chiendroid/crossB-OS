@@ -23,6 +23,7 @@ class ReleaseJsonParser {
   const char* getTagName() const;
   const char* getFirmwareUrl() const;
   size_t getFirmwareSize() const;
+  const char* getReleaseBody() const;
 
  private:
   enum class Position : uint8_t {
@@ -34,6 +35,7 @@ class ReleaseJsonParser {
   enum class LastKey : uint8_t {
     NONE,
     TAG_NAME,
+    BODY,
     ASSETS,
     ASSET_NAME,
     ASSET_URL,
@@ -62,6 +64,7 @@ class ReleaseJsonParser {
 
   char tagName[32];
   char firmwareUrl[512];
+  char releaseBody[1536];
   size_t firmwareSize;
   bool tagFound;
   bool firmwareFound;

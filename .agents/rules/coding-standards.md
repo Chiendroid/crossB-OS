@@ -88,3 +88,7 @@ Raw `malloc`/`new (std::nothrow)` is allowed only for a C/SDK API taking ownersh
 Check failure, name that owner in a comment, and match its `free`/`delete`/`delete[]`
 contract. Resource budgets and hot-path containers follow
 [hardware rules](hardware-resources.md#the-resource-protocol).
+
+### Typography, Strings and UI Content Rules
+
+- **No Emojis or Special Symbols:** Do NOT use emojis (e.g., 🚀, 🌟, 🛠️, 🔐) or decorative pictographic symbols in user-facing UI strings, headers, buttons, status dialogs, OTA changelogs, or system text. Use standard alphanumeric text, clean bullet points (`-` or `*`), and standard punctuation. E-ink screens and built-in fonts lack emoji glyphs, and rendering them causes missing glyph boxes or font fallback visual glitches.

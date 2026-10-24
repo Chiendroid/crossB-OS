@@ -668,8 +668,18 @@ void drawDashedRoundedRect(const GfxRenderer& renderer, int x, int y, int w, int
   }
 }
 
+namespace {
+bool isNonEmptyBmp(const std::string& path) {
+  HalFile f;
+  if (!Storage.openFileForRead("SLP", path, f)) return false;
+  const size_t sz = f.size();
+  f.close();
+  return sz >= 54;
+}
+}  // namespace
+
 std::string resolveRecentBookCoverPath(const RecentBook& book) {
-  static constexpr int COMMON_HEIGHTS[] = {218, 226, 200, 180, 160, 260, 134, 151, 132, 300, 400};
+  static constexpr int COMMON_HEIGHTS[] = {218, 226, 200, 180, 160, 234, 240, 248, 250, 260, 280, 320, 134, 151, 132, 300, 400};
   if (!book.coverBmpPath.empty()) {
     std::string path = book.coverBmpPath;
     const std::string placeholder = "[HEIGHT]";
@@ -678,9 +688,9 @@ std::string resolveRecentBookCoverPath(const RecentBook& book) {
       for (const int h : COMMON_HEIGHTS) {
         std::string candidate = path;
         candidate.replace(pos, placeholder.length(), std::to_string(h));
-        if (Storage.exists(candidate.c_str())) return candidate;
+        if (Storage.exists(candidate.c_str()) && isNonEmptyBmp(candidate)) return candidate;
       }
-    } else if (Storage.exists(path.c_str())) {
+    } else if (Storage.exists(path.c_str()) && isNonEmptyBmp(path)) {
       return path;
     }
   }
@@ -688,23 +698,23 @@ std::string resolveRecentBookCoverPath(const RecentBook& book) {
     Epub epub(book.path, "/.crosspoint");
     for (const int h : COMMON_HEIGHTS) {
       const std::string thumb = epub.getThumbBmpPath(h);
-      if (Storage.exists(thumb.c_str())) return thumb;
+      if (Storage.exists(thumb.c_str()) && isNonEmptyBmp(thumb)) return thumb;
     }
     const std::string cover = epub.getCoverBmpPath(false, false);
-    if (Storage.exists(cover.c_str())) return cover;
+    if (Storage.exists(cover.c_str()) && isNonEmptyBmp(cover)) return cover;
     if (epub.generateThumbBmp(218)) {
       const std::string thumb = epub.getThumbBmpPath(218);
-      if (Storage.exists(thumb.c_str())) return thumb;
+      if (Storage.exists(thumb.c_str()) && isNonEmptyBmp(thumb)) return thumb;
     }
   }
   if (FsHelpers::hasXtcExtension(book.path)) {
     Xtc xtc(book.path, "/.crosspoint");
     for (const int h : COMMON_HEIGHTS) {
       const std::string thumb = xtc.getThumbBmpPath(h);
-      if (Storage.exists(thumb.c_str())) return thumb;
+      if (Storage.exists(thumb.c_str()) && isNonEmptyBmp(thumb)) return thumb;
     }
     const std::string cover = xtc.getCoverBmpPath();
-    if (Storage.exists(cover.c_str())) return cover;
+    if (Storage.exists(cover.c_str()) && isNonEmptyBmp(cover)) return cover;
   }
   return "";
 }

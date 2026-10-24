@@ -24,6 +24,127 @@ constexpr char stableReleaseUrl[] = "https://api.github.com/repos/Chiendroid/cro
 constexpr char devReleaseUrl[] = "https://api.github.com/repos/Chiendroid/crossB-OS/releases?per_page=1";
 }  // namespace
 
+std::string OtaUpdater::sanitizeChangelog(const char* raw) {
+  if (!raw || *raw == '\0') return "";
+
+  std::string result;
+  result.reserve(strlen(raw));
+
+  const auto* p = reinterpret_cast<const unsigned char*>(raw);
+  bool atLineStart = true;
+  bool lastWasNewline = false;
+
+  while (*p) {
+    if (*p == '\r') {
+      p++;
+      continue;
+    }
+    if (*p == '\n') {
+      if (!lastWasNewline && !result.empty()) {
+        result.push_back('\n');
+        lastWasNewline = true;
+      }
+      atLineStart = true;
+      p++;
+      continue;
+    }
+
+    // Skip markdown headings and leading spaces at line start
+    if (atLineStart) {
+      while (*p == '#' || *p == ' ' || *p == '\t') {
+        p++;
+      }
+      if (*p == '\0' || *p == '\n' || *p == '\r') {
+        continue;
+      }
+      atLineStart = false;
+      lastWasNewline = false;
+    }
+
+    // Strip markdown formatting symbols
+    if (*p == '*' || *p == '_') {
+      p++;
+      continue;
+    }
+
+    // Convert markdown link [title](url) into title
+    if (*p == '[') {
+      p++;
+      continue;
+    }
+    if (*p == ']') {
+      p++;
+      if (*p == '(') {
+        p++;
+        while (*p && *p != ')' && *p != '\n') {
+          p++;
+        }
+        if (*p == ')') p++;
+      }
+      continue;
+    }
+
+    unsigned char c = *p;
+    if (c < 0x80) {
+      if (c >= 32 || c == '\t') {
+        result.push_back(static_cast<char>(c));
+        lastWasNewline = false;
+      }
+      p++;
+    } else if ((c & 0xE0) == 0xC0) {
+      // 2-byte UTF-8
+      if (*(p + 1) && (*(p + 1) & 0xC0) == 0x80) {
+        result.push_back(static_cast<char>(*p));
+        result.push_back(static_cast<char>(*(p + 1)));
+        p += 2;
+        lastWasNewline = false;
+      } else {
+        p++;
+      }
+    } else if ((c & 0xF0) == 0xE0) {
+      // 3-byte UTF-8
+      if (*(p + 1) && *(p + 2) && (*(p + 1) & 0xC0) == 0x80 && (*(p + 2) & 0xC0) == 0x80) {
+        if (c == 0xE2) {
+          // Replace en-dash or em-dash with standard ASCII '-'
+          if (*(p + 1) == 0x80 && (*(p + 2) == 0x93 || *(p + 2) == 0x94)) {
+            result.push_back('-');
+            lastWasNewline = false;
+          }
+          // Skip other 3-byte symbols and dingbats
+          p += 3;
+        } else {
+          result.push_back(static_cast<char>(*p));
+          result.push_back(static_cast<char>(*(p + 1)));
+          result.push_back(static_cast<char>(*(p + 2)));
+          p += 3;
+          lastWasNewline = false;
+        }
+      } else {
+        p++;
+      }
+    } else if ((c & 0xF8) == 0xF0) {
+      // 4-byte UTF-8 (Emoji) - strip completely
+      size_t skip = 1;
+      while (skip < 4 && *(p + skip) && (*(p + skip) & 0xC0) == 0x80) {
+        skip++;
+      }
+      p += skip;
+    } else {
+      p++;
+    }
+  }
+
+  return result;
+}
+
+const char* OtaUpdater::getDefaultCurrentChangelog() {
+  return "- Nang cap he thong len phien ban 0.2.0-dev\n"
+         "- Toi uu trinh duyet web, giam thieu loi bo nho OOM\n"
+         "- Sua loi crash khi chon co chu trong trinh doc Epub\n"
+         "- Sua loi man hinh ngu khong hien thi bia sach\n"
+         "- Cai tien giao dien cap nhat OTA va nhat ky thay doi";
+}
+
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   const char* targetUrl = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) ? devReleaseUrl : stableReleaseUrl;
   LOG_DBG("OTA", "Checking for update [Channel: %s] from %s (current: %s)",
@@ -88,9 +209,16 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   otaUrl = releaseParser.getFirmwareUrl();
   otaSize = releaseParser.getFirmwareSize();
   totalSize = otaSize;
+  const char* body = releaseParser.getReleaseBody();
+  if (body && *body) {
+    releaseNotes = sanitizeChangelog(body);
+  }
+  if (releaseNotes.empty()) {
+    releaseNotes = getDefaultCurrentChangelog();
+  }
   updateAvailable = true;
 
-  LOG_DBG("OTA", "Found update: tag=%s size=%zu", latestVersion.c_str(), otaSize);
+  LOG_DBG("OTA", "Found update: tag=%s size=%zu notes_len=%zu", latestVersion.c_str(), otaSize, releaseNotes.size());
   LOG_DBG("OTA", "Firmware URL: %s", otaUrl.c_str());
   return OK;
 }

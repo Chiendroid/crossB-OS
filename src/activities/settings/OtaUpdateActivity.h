@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "network/OtaUpdater.h"
@@ -8,9 +11,8 @@ class OtaUpdateActivity : public Activity {
   enum State {
     WIFI_SELECTION,
     CHECKING_FOR_UPDATE,
-    WAITING_CONFIRMATION,
+    VIEW_UPDATE,
     UPDATE_IN_PROGRESS,
-    NO_UPDATE,
     FAILED,
     FINISHED,
     SHUTTING_DOWN
@@ -26,11 +28,20 @@ class OtaUpdateActivity : public Activity {
   // Points into the i18n string table (flash-resident, so no lifetime concern);
   // nullptr means no extra detail.
   const char* failedDetail = nullptr;
-  // Cancel/Update confirmation over the version info (replaces the old
-  // hand-rolled bottom tap rects).
   OptionPopup confirmPopup;
 
+  std::vector<std::string> changelogLines;
+  int scrollLine = 0;
+
+  Rect updateButtonRect{0, 0, 0, 0};
+  Rect changeChannelButtonRect{0, 0, 0, 0};
+  Rect retryButtonRect{0, 0, 0, 0};
+  Rect backButtonRect{0, 0, 0, 0};
+  Rect changelogBoxRect{0, 0, 0, 0};
+
   void onWifiSelectionComplete(bool success);
+  void startCheckForUpdate();
+  void prepareChangelogLines();
   void runUpdateInstall();
 
  public:

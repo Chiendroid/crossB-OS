@@ -144,6 +144,7 @@ void HomeActivity::loadGridCover(RecentBook& book, int height, bool& showingLoad
       GUI.fillPopupProgress(renderer, popupRect, 0);
     }
     if (epub->generateThumbBmpFromSource(height)) {
+      RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.coverBmpPath);
       return;
     }
   } else if (FsHelpers::hasXtcExtension(book.path)) {
@@ -160,6 +161,7 @@ void HomeActivity::loadGridCover(RecentBook& book, int height, bool& showingLoad
       GUI.fillPopupProgress(renderer, popupRect, 0);
     }
     if (xtc->load() && xtc->generateThumbBmp(height)) {
+      RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.coverBmpPath);
       return;
     }
   }
@@ -201,6 +203,8 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           if (!success) {
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
             book.coverBmpPath = "";
+          } else {
+            RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.coverBmpPath);
           }
           coverRendered = false;
           requestUpdate();
@@ -218,6 +222,8 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             if (!success) {
               RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
               book.coverBmpPath = "";
+            } else {
+              RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.coverBmpPath);
             }
             coverRendered = false;
             requestUpdate();
