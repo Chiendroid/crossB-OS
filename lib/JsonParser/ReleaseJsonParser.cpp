@@ -30,6 +30,7 @@ void ReleaseJsonParser::reset() {
   lastKey = LastKey::NONE;
   depth = 0;
   assetDepth = 0;
+  inRootArray = false;
   tagName[0] = '\0';
   firmwareUrl[0] = '\0';
   firmwareSize = 0;
@@ -65,8 +66,9 @@ void ReleaseJsonParser::sOnKey(void* ctx, const char* key, size_t len) {
   auto* self = static_cast<ReleaseJsonParser*>(ctx);
 
   switch (self->position) {
-    case Position::TOP_LEVEL:
-      if (self->depth == 1) {
+    case Position::TOP_LEVEL: {
+      const uint8_t targetDepth = self->inRootArray ? 2 : 1;
+      if (self->depth == targetDepth) {
         if (len == 8 && memcmp(key, "tag_name", 8) == 0)
           self->lastKey = LastKey::TAG_NAME;
         else if (len == 6 && memcmp(key, "assets", 6) == 0)
@@ -75,6 +77,7 @@ void ReleaseJsonParser::sOnKey(void* ctx, const char* key, size_t len) {
           self->lastKey = LastKey::NONE;
       }
       break;
+    }
     case Position::IN_ASSET_OBJECT:
       if (self->assetDepth == 1) {
         if (len == 4 && memcmp(key, "name", 4) == 0)
@@ -96,12 +99,14 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
   auto* self = static_cast<ReleaseJsonParser*>(ctx);
 
   switch (self->lastKey) {
-    case LastKey::TAG_NAME:
-      if (self->position == Position::TOP_LEVEL && self->depth == 1) {
+    case LastKey::TAG_NAME: {
+      const uint8_t targetDepth = self->inRootArray ? 2 : 1;
+      if (self->position == Position::TOP_LEVEL && self->depth == targetDepth) {
         safeCopy(self->tagName, sizeof(self->tagName), value, len);
         self->tagFound = true;
       }
       break;
+    }
     case LastKey::ASSET_NAME:
       if (self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1)
         safeCopy(self->currentAssetName, sizeof(self->currentAssetName), value, len);
@@ -179,7 +184,10 @@ void ReleaseJsonParser::sOnArrayStart(void* ctx) {
 
   switch (self->position) {
     case Position::TOP_LEVEL:
-      if (self->lastKey == LastKey::ASSETS && self->depth == 1) {
+      if (self->depth == 0) {
+        self->inRootArray = true;
+        self->depth++;
+      } else if (self->lastKey == LastKey::ASSETS && self->depth == (self->inRootArray ? 2 : 1)) {
         self->position = Position::IN_ASSETS_ARRAY;
       } else {
         self->depth++;
@@ -201,6 +209,7 @@ void ReleaseJsonParser::sOnArrayEnd(void* ctx) {
   switch (self->position) {
     case Position::TOP_LEVEL:
       if (self->depth > 0) self->depth--;
+      if (self->depth == 0) self->inRootArray = false;
       break;
     case Position::IN_ASSETS_ARRAY:
       self->position = Position::TOP_LEVEL;

@@ -270,7 +270,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // CLOCK_DST_MODE: follow the zone's DST rule, or force it on/off.
   uint8_t clockDst = CLOCK_DST_AUTO;
   // Show the clock opposite the battery in every header band that draws one.
-  uint8_t clockShowInHeader = 0;
+  uint8_t clockShowInHeader = 1;
   // Set once an NTP sync succeeds. Used to skip re-syncing on every WiFi connect.
   // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
   uint8_t clockHasBeenSynced = 0;
@@ -379,11 +379,19 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
   uint8_t readingUnderlineStyle = UNDERLINE_OFF;
 
+  // OTA update channel: 0 = Stable/Release, 1 = Dev/Beta
+  enum OTA_CHANNEL : uint8_t {
+    OTA_CHANNEL_RELEASE = 0,
+    OTA_CHANNEL_DEV = 1,
+    OTA_CHANNEL_COUNT = 2
+  };
+  uint8_t otaChannel = OTA_CHANNEL_DEV;
+
   // Reading timer limit in minutes (0 = Off)
   uint8_t readingTimerMinutes = 0;
   // Reading timer scope: 0 = Global (All books), 1 = Per-book
   uint8_t readingTimerPerBook = 0;
-  uint8_t readerMenuStyle = READER_MENU_TOOLBAR;
+  uint8_t readerMenuStyle = READER_MENU_LIST;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[32] = "";
   // Dictionary folder name under /dictionaries (empty = no dictionary)

@@ -106,6 +106,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     doc["nearbyReceiveFolder"] = nearbyReceiveFolder;
   }
   doc["readingUnderlineStyle"] = readingUnderlineStyle;
+  doc["otaChannel"] = otaChannel;
   doc["readingTimerMinutes"] = readingTimerMinutes;
   doc["readingTimerPerBook"] = readingTimerPerBook;
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
@@ -285,6 +286,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   nearbyReceiveFolder[sizeof(nearbyReceiveFolder) - 1] = '\0';
 
   readingUnderlineStyle = clamp(doc["readingUnderlineStyle"] | (uint8_t)UNDERLINE_OFF, (uint8_t)UNDERLINE_STYLE_COUNT, (uint8_t)UNDERLINE_OFF);
+  otaChannel = clamp(doc["otaChannel"] | (uint8_t)OTA_CHANNEL_DEV, (uint8_t)OTA_CHANNEL_COUNT, (uint8_t)OTA_CHANNEL_DEV);
   readingTimerMinutes = doc["readingTimerMinutes"] | (uint8_t)0;
   readingTimerPerBook = doc["readingTimerPerBook"] | (uint8_t)0;
   if (sdFontFamilyName[0] == '\0') {

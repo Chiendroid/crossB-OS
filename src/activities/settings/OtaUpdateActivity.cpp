@@ -127,6 +127,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
     // Version info sits in the upper part of the screen so the centered
     // Cancel/Update popup doesn't cover it (same layout as ConfirmationActivity).
     const int infoTop = pageHeight / 6;
+    char chanBuf[64];
+    snprintf(chanBuf, sizeof(chanBuf), "Kênh cập nhật: %s",
+             SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Phát triển (Dev)" : "Ổn định (Release)");
+    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop - height - metrics.verticalSpacing, chanBuf);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop,
                       (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop + height + metrics.verticalSpacing,
@@ -150,8 +154,14 @@ void OtaUpdateActivity::render(RenderLock&&) {
         UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
   } else if (state == NO_UPDATE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    renderer.drawCenteredText(UI_10_FONT_ID, top - height, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
+    char chanBuf[64];
+    snprintf(chanBuf, sizeof(chanBuf), "Kênh hiện tại: %s",
+             SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Phát triển (Dev)" : "Ổn định (Release)");
+    renderer.drawCenteredText(UI_10_FONT_ID, top + metrics.verticalSpacing, chanBuf);
+    renderer.drawCenteredText(UI_10_FONT_ID, top + height * 2 + metrics.verticalSpacing * 2,
+                              "Bấm Xác nhận (Confirm) để đổi kênh");
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "Đổi kênh", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
@@ -232,7 +242,20 @@ void OtaUpdateActivity::loop() {
   if (state == NO_UPDATE) {
     int x = 0;
     int y = 0;
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back) || mappedInput.wasScreenTapped(x, y)) {
+    const bool tapped = mappedInput.wasScreenTapped(x, y);
+    const auto pageWidth = renderer.getScreenWidth();
+    const auto pageHeight = renderer.getScreenHeight();
+
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
+        (tapped && (y > pageHeight / 3 && y < pageHeight - 60 || (y >= pageHeight - 60 && x > pageWidth / 2)))) {
+      SETTINGS.otaChannel = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV)
+                                ? CrossPointSettings::OTA_CHANNEL_RELEASE
+                                : CrossPointSettings::OTA_CHANNEL_DEV;
+      SETTINGS.saveToFile();
+      onWifiSelectionComplete(true);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back) || tapped) {
       finish();
     }
     return;

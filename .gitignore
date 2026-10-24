@@ -37,3 +37,4 @@ qa-artifacts/
 fs_test/
 firmware_backups/
 firmware_export/
+*.bin

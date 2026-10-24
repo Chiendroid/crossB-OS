@@ -15,15 +15,19 @@
 #include <cstring>
 #include <string>
 
+#include "CrossPointSettings.h"
 #include "FirmwareBoardTag.h"
 #include "FirmwareFlasher.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/Chiendroid/crossB-OS/releases/latest";
+constexpr char stableReleaseUrl[] = "https://api.github.com/repos/Chiendroid/crossB-OS/releases/latest";
+constexpr char devReleaseUrl[] = "https://api.github.com/repos/Chiendroid/crossB-OS/releases?per_page=1";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
-  LOG_DBG("OTA", "Checking for update (current: %s)", CROSSPOINT_VERSION);
+  const char* targetUrl = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) ? devReleaseUrl : stableReleaseUrl;
+  LOG_DBG("OTA", "Checking for update [Channel: %s] from %s (current: %s)",
+          SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Dev" : "Release", targetUrl, CROSSPOINT_VERSION);
 
   // Stream the ~32KB release JSON straight into the parser as it arrives.
   // Buffering the whole body in a std::string would add a growing allocation
@@ -48,7 +52,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
   char assetName[48] = {};
   bool assetNameSet = false;
-  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&](const uint8_t* data, size_t len) {
+  const bool ok = HttpDownloader::fetchUrl(targetUrl, [&](const uint8_t* data, size_t len) {
     size_t offset = 0;
     while (!assetNameSet && offset < len) {
       releaseParser.feed(reinterpret_cast<const char*>(data + offset), 1);
@@ -96,26 +100,24 @@ bool OtaUpdater::isUpdateNewer() const {
     return false;
   }
 
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
+  // Bỏ qua chữ 'v' hoặc 'V' nếu có ở đầu tag
+  const char* lStr = (latestVersion[0] == 'v' || latestVersion[0] == 'V') ? latestVersion.c_str() + 1 : latestVersion.c_str();
+  const char* cStr = (CROSSPOINT_VERSION[0] == 'v' || CROSSPOINT_VERSION[0] == 'V') ? CROSSPOINT_VERSION + 1 : CROSSPOINT_VERSION;
 
-  const auto currentVersion = CROSSPOINT_VERSION;
+  int currentMajor = 0, currentMinor = 0, currentPatch = 0;
+  int latestMajor = 0, latestMinor = 0, latestPatch = 0;
 
   // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
-  sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
+  sscanf(lStr, "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
+  sscanf(cStr, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
 
   /*
    * Compare major versions.
-   * If they differ, return true if latest major version greater than current major version
-   * otherwise return false.
    */
   if (latestMajor != currentMajor) return latestMajor > currentMajor;
 
   /*
    * Compare minor versions.
-   * If they differ, return true if latest minor version greater than current minor version
-   * otherwise return false.
    */
   if (latestMinor != currentMinor) return latestMinor > currentMinor;
 
@@ -124,10 +126,16 @@ bool OtaUpdater::isUpdateNewer() const {
    */
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
 
-  // If we reach here, it means all segments are equal.
-  // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
-  // the segments are equal, since RC builds are pre-release versions.
-  if (strstr(currentVersion, "-rc") != nullptr) {
+  // Nếu cùng segments số, nhưng bản hiện tại là pre-release (alpha/beta/rc/dev)
+  if (strstr(CROSSPOINT_VERSION, "-rc") != nullptr ||
+      strstr(CROSSPOINT_VERSION, "-alpha") != nullptr ||
+      strstr(CROSSPOINT_VERSION, "-beta") != nullptr ||
+      strstr(CROSSPOINT_VERSION, "-dev") != nullptr) {
+    return true;
+  }
+
+  // Nếu ở kênh Dev và tag khác nhau, luôn cho phép cập nhật lên bản dev mới
+  if (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV && latestVersion != CROSSPOINT_VERSION) {
     return true;
   }
 

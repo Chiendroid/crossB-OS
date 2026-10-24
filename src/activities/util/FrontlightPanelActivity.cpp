@@ -254,7 +254,6 @@ void FrontlightPanelActivity::toggleLight() {
   }
   haptic_feedback::touchAction();
   app.clearTapFlash();
-  cleanRefreshPending = true;
   requestUpdate();
 }
 
@@ -292,7 +291,6 @@ void FrontlightPanelActivity::loop() {
   if (draggingSlider) {
     if (!touch.snap.touchHeld) {
       draggingSlider = false;
-      cleanRefreshPending = true;
       requestUpdate();
     }
     return;

@@ -570,7 +570,7 @@ void setup() {
   // in-memory value only when the file carries no readerMenuStyle key, so a
   // user's saved choice (either style) still wins.
   if (gpio.hasTouch()) {
-    SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
+    SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_LIST;
   }
   SETTINGS.loadFromFile();
   // Push the saved timezone's POSIX rule into the clock (migrating the legacy
