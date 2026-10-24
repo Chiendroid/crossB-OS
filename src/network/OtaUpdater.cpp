@@ -106,18 +106,18 @@ const char* skipToVersionDigits(const char* s) {
 }  // namespace
 
 bool OtaUpdater::isUpdateNewer() const {
-  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSPOINT_VERSION) {
+  if (!updateAvailable || latestVersion.empty()) {
     return false;
-  }
-
-  // Nếu ở kênh Dev và tag khác nhau, luôn cho phép cập nhật
-  if (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV && latestVersion != CROSSPOINT_VERSION) {
-    return true;
   }
 
   // Tự động tìm vị trí chữ số đầu tiên trong chuỗi phiên bản (bỏ qua 'v', 'crossB-OS-', v.v.)
   const char* lStr = skipToVersionDigits(latestVersion.c_str());
   const char* cStr = skipToVersionDigits(CROSSPOINT_VERSION);
+
+  // Nếu 2 chuỗi phiên bản chuẩn hoá trùng khớp hoàn toàn (ví dụ đều là "0.1.2-dev" hoặc "0.1.2"):
+  if (strcmp(lStr, cStr) == 0) {
+    return false;
+  }
 
   int currentMajor = 0, currentMinor = 0, currentPatch = 0;
   int latestMajor = 0, latestMinor = 0, latestPatch = 0;
@@ -130,12 +130,18 @@ bool OtaUpdater::isUpdateNewer() const {
   if (latestMinor != currentMinor) return latestMinor > currentMinor;
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
 
-  // Nếu cùng segments số, nhưng bản hiện tại là pre-release (alpha/beta/rc/dev)
-  if (strstr(CROSSPOINT_VERSION, "-rc") != nullptr ||
-      strstr(CROSSPOINT_VERSION, "-alpha") != nullptr ||
-      strstr(CROSSPOINT_VERSION, "-beta") != nullptr ||
-      strstr(CROSSPOINT_VERSION, "-dev") != nullptr) {
-    return true;
+  // Nếu các con số major.minor.patch bằng nhau:
+  // Nếu bản hiện tại là pre-release (-dev, -alpha, -beta, -rc) và bản mới là bản release chính thức (không có dấu '-'):
+  const bool currentIsPre = (strchr(cStr, '-') != nullptr);
+  const bool latestIsPre = (strchr(lStr, '-') != nullptr);
+
+  if (currentIsPre && !latestIsPre) {
+    return true;  // Nâng cấp từ dev/alpha lên bản release chính thức
+  }
+
+  // Nếu ở kênh Dev và có hậu tố khác nhau:
+  if (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) {
+    return strcmp(lStr, cStr) > 0;
   }
 
   return false;

@@ -24,7 +24,7 @@ class SettingsListActivity final : public UiListActivity {
   void drawChrome() override;
   void drawFooter() override;
   bool handleCustomInput() override;
-  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe, int startX = -1, int startY = -1) override;
 
   bool dockCollapsed = false;
 

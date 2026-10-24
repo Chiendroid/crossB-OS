@@ -765,8 +765,8 @@ bool LibraryListActivity::handleCustomInput() {
   return false;
 }
 
-void LibraryListActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
-  if (BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+void LibraryListActivity::onListSwiped(MappedInputManager::SwipeDir swipe, int startX, int startY) {
+  if (BottomDockBar::handleSwipe(swipe, dockCollapsed, startX, startY)) {
     resetUi();
   }
 }

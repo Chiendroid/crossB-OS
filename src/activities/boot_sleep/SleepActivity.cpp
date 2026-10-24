@@ -710,7 +710,7 @@ std::string resolveRecentBookCoverPath(const RecentBook& book) {
 }
 }  // namespace
 
-void SleepActivity::renderDefaultSleepScreen() const {
+void SleepActivity::renderDefaultSleepScreen(bool fast) const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
@@ -949,7 +949,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(kSleepClean);
+  renderer.displayBuffer(fast ? HalDisplay::FAST_REFRESH : kSleepClean);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
@@ -1122,7 +1122,29 @@ void SleepActivity::renderCoverSleepScreen() const {
       break;
   }
 
-  if (APP_STATE.openEpubPath.empty()) {
+  // 1. Xác định đường dẫn cuốn sách cần hiện bìa
+  std::string targetBookPath = APP_STATE.openEpubPath;
+  const auto& books = RECENT_BOOKS.getBooks();
+  const RecentBook* matchedBook = nullptr;
+
+  if (!targetBookPath.empty()) {
+    for (const auto& b : books) {
+      if (b.path == targetBookPath) {
+        matchedBook = &b;
+        break;
+      }
+    }
+  }
+
+  if (targetBookPath.empty()) {
+    if (!books.empty()) {
+      matchedBook = &books.front();
+      targetBookPath = matchedBook->path;
+    }
+  }
+
+  // Nếu trong máy hoàn toàn chưa từng mở hoặc có sách nào
+  if (targetBookPath.empty()) {
     return (this->*renderNoCoverSleepScreen)();
   }
 
@@ -1134,51 +1156,154 @@ void SleepActivity::renderCoverSleepScreen() const {
   std::string coverBmpPath;
   bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
 
-  // Check if the current book is XTC, TXT, or EPUB
-  if (FsHelpers::hasXtcExtension(APP_STATE.openEpubPath)) {
-    // Handle XTC file
-    Xtc lastXtc(APP_STATE.openEpubPath, "/.crosspoint");
-    if (!lastXtc.load()) {
-      LOG_ERR("SLP", "Failed to load last XTC");
-      return (this->*renderNoCoverSleepScreen)();
+  // 2. Thử tạo và tìm ảnh bìa full màn hình
+  if (FsHelpers::hasXtcExtension(targetBookPath)) {
+    Xtc lastXtc(targetBookPath, "/.crosspoint");
+    if (lastXtc.load() && lastXtc.generateCoverBmp()) {
+      coverBmpPath = lastXtc.getCoverBmpPath();
     }
-
-    if (!lastXtc.generateCoverBmp()) {
-      LOG_ERR("SLP", "Failed to generate XTC cover bmp");
-      return (this->*renderNoCoverSleepScreen)();
+  } else if (FsHelpers::hasReflowableBookExtension(targetBookPath)) {
+    Epub lastEpub(targetBookPath, "/.crosspoint");
+    if (lastEpub.load(true, true) && lastEpub.generateCoverBmp(cropped, originalThresholds)) {
+      coverBmpPath = lastEpub.getCoverBmpPath(cropped, originalThresholds);
     }
+  }
 
-    coverBmpPath = lastXtc.getCoverBmpPath();
-  } else if (FsHelpers::hasReflowableBookExtension(APP_STATE.openEpubPath)) {
-    // Handle EPUB, TXT, or Markdown file
-    Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
-    // Skip loading css since we only need metadata here
-    if (!lastEpub.load(true, true)) {
-      LOG_ERR("SLP", "Failed to load last book");
-      return (this->*renderNoCoverSleepScreen)();
+  // 3. Nếu có file cover full, mở và hiển thị tràn màn hình
+  if (!coverBmpPath.empty()) {
+    HalFile file;
+    if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
+      Bitmap bitmap(file);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+        LOG_DBG("SLP", "Rendering full sleep cover: %s", coverBmpPath.c_str());
+        renderBitmapSleepScreen(bitmap);
+        file.close();
+        return;
+      }
+      file.close();
     }
+  }
 
-    if (!lastEpub.generateCoverBmp(cropped, originalThresholds)) {
-      LOG_ERR("SLP", "Failed to generate cover bmp");
-      return (this->*renderNoCoverSleepScreen)();
-    }
-
-    coverBmpPath = lastEpub.getCoverBmpPath(cropped, originalThresholds);
+  // 4. Nếu không có cover full, thử tìm thumbnail đã cache của sách
+  std::string thumbCoverPath;
+  if (matchedBook != nullptr) {
+    thumbCoverPath = resolveRecentBookCoverPath(*matchedBook);
   } else {
-    return (this->*renderNoCoverSleepScreen)();
+    RecentBook tempBook{};
+    tempBook.path = targetBookPath;
+    thumbCoverPath = resolveRecentBookCoverPath(tempBook);
   }
 
-  HalFile file;
-  if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
-    Bitmap bitmap(file);
-    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      renderBitmapSleepScreen(bitmap);
-      return;
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  // Đọc thông tin tên sách và tác giả
+  std::string bookTitle = matchedBook ? matchedBook->title : "";
+  std::string bookAuthor = matchedBook ? matchedBook->author : "";
+  if (bookTitle.empty()) {
+    bookTitle = FsHelpers::getFileNameWithoutExtension(targetBookPath);
+  }
+  const int progress = loadBookProgress(targetBookPath);
+  const int readPct = progress >= 0 ? progress : 0;
+
+  // 5. Nếu có ảnh thumbnail, vẽ màn hình bìa sách nghệ thuật (Artistic Cover)
+  if (!thumbCoverPath.empty()) {
+    HalFile thumbFile;
+    if (Storage.openFileForRead("SLP", thumbCoverPath, thumbFile)) {
+      Bitmap bitmap(thumbFile);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+        renderer.clearScreen(0xFF);
+
+        // Header nhỏ
+        const uint16_t percentage = powerManager.getBatteryPercentage();
+        const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+        char headerBuf[32];
+        snprintf(headerBuf, sizeof(headerBuf), "ĐÃ KHÓA  ·  %u%%", clampedPin);
+        renderer.drawCenteredText(UI_10_FONT_ID, 36, headerBuf, true);
+
+        // Bìa sách căn giữa với bóng đổ tinh tế
+        constexpr int coverW = 240;
+        constexpr int coverH = 360;
+        const int coverX = (pageWidth - coverW) / 2;
+        constexpr int coverY = 88;
+
+        renderer.fillRoundedRect(coverX + 4, coverY + 4, coverW, coverH, 10, Color::Black);
+        renderer.fillRoundedRect(coverX, coverY, coverW, coverH, 10, Color::White);
+        renderer.drawBitmap(bitmap, coverX, coverY, coverW, coverH);
+        renderer.drawRoundedRect(coverX, coverY, coverW, coverH, 2, 10, true);
+
+        // Thông tin sách phía dưới
+        const int textMaxW = pageWidth - 64;
+        const std::string truncTitle = renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), textMaxW);
+        renderer.drawCenteredText(UI_12_FONT_ID, 490, truncTitle.c_str(), true, EpdFontFamily::BOLD);
+
+        if (!bookAuthor.empty()) {
+          const std::string truncAuth = renderer.truncatedText(UI_10_FONT_ID, bookAuthor.c_str(), textMaxW);
+          renderer.drawCenteredText(UI_10_FONT_ID, 534, truncAuth.c_str(), true);
+        }
+
+        char progBuf[48];
+        snprintf(progBuf, sizeof(progBuf), "Tiến độ đọc: %d%%", readPct);
+        renderer.drawCenteredText(UI_10_FONT_ID, 574, progBuf, true);
+
+        // Thanh tiến độ thanh mảnh
+        constexpr int barW = 200;
+        const int barX = (pageWidth - barW) / 2;
+        constexpr int barY = 612;
+        renderer.drawLine(barX, barY, barX + barW, barY, 1, true);
+        if (readPct > 0) {
+          const int fillW = std::clamp((barW * readPct) / 100, 2, barW);
+          renderer.drawLine(barX, barY, barX + fillW, barY, 3, true);
+        }
+
+        thumbFile.close();
+        renderer.displayBuffer(kSleepClean);
+        return;
+      }
+      thumbFile.close();
     }
   }
 
-  return (this->*renderNoCoverSleepScreen)();
+  // 6. Nếu không có bất kỳ ảnh bìa nào, vẽ Bìa Typographic thanh lịch sang trọng
+  renderer.clearScreen(0xFF);
+
+  // Khung viền sách cổ điển
+  constexpr int frameMargin = 32;
+  renderer.drawRoundedRect(frameMargin, frameMargin, pageWidth - frameMargin * 2, pageHeight - frameMargin * 2, 2, 16, true);
+  renderer.drawRoundedRect(frameMargin + 8, frameMargin + 8, pageWidth - (frameMargin + 8) * 2, pageHeight - (frameMargin + 8) * 2, 1, 12, true);
+
+  // Header pin
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[32];
+  snprintf(headerBuf, sizeof(headerBuf), "CROSSPOINT READER  ·  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 70, headerBuf, true);
+
+  // Tên sách nổi bật ở trung tâm
+  const int maxW = pageWidth - 100;
+  const std::string titleLine = renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), maxW);
+  renderer.drawCenteredText(UI_12_FONT_ID, 280, titleLine.c_str(), true, EpdFontFamily::BOLD);
+
+  if (!bookAuthor.empty()) {
+    const std::string authLine = renderer.truncatedText(UI_12_FONT_ID, bookAuthor.c_str(), maxW);
+    renderer.drawCenteredText(UI_12_FONT_ID, 340, authLine.c_str(), true);
+  }
+
+  char progBuf[48];
+  snprintf(progBuf, sizeof(progBuf), "Tiến độ: %d%%", readPct);
+  renderer.drawCenteredText(UI_10_FONT_ID, 430, progBuf, true);
+
+  constexpr int barW = 180;
+  const int barX = (pageWidth - barW) / 2;
+  constexpr int barY = 465;
+  renderer.drawLine(barX, barY, barX + barW, barY, 1, true);
+  if (readPct > 0) {
+    const int fillW = std::clamp((barW * readPct) / 100, 2, barW);
+    renderer.drawLine(barX, barY, barX + fillW, barY, 3, true);
+  }
+
+  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 75, "Đang ở chế độ ngủ (Chạm để tiếp tục)", true);
+  renderer.displayBuffer(kSleepClean);
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {

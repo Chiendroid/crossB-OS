@@ -69,7 +69,7 @@ class UiListActivity : public Activity, protected UiAppHost {
   // variants. Return true when a button consumed the pass.
   virtual bool handleButtons();
   virtual void onBackButton() { finish(); }
-  virtual void onListSwiped(MappedInputManager::SwipeDir swipe) {}
+  virtual void onListSwiped(MappedInputManager::SwipeDir swipe, int startX = -1, int startY = -1) {}
   // Header band, drawn before the app renders. Default paints GUI.drawHeader
   // with headerTitle(); override either for custom chrome.
   virtual const char* headerTitle() const { return nullptr; }

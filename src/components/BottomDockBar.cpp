@@ -73,11 +73,11 @@ void render(GfxRenderer& renderer, Tab activeTab, bool isCollapsed) {
 
     if (isSelected) {
       // Tab Active: Nút Pill bo góc cơ học ôm trọn icon ở chính giữa
-      constexpr int pillW = 68;
-      constexpr int pillH = 38;
+      constexpr int pillW = 72;
+      constexpr int pillH = 42;
       const int pillX = tabX + (TAB_W - pillW) / 2;
       const int pillY = ISLAND_Y + (ISLAND_H - pillH) / 2;
-      constexpr int pillRadius = 10;
+      constexpr int pillRadius = 12;
 
       renderer.fillRoundedRect(pillX, pillY, pillW, pillH, pillRadius, Color::Black);
 
@@ -93,7 +93,7 @@ void render(GfxRenderer& renderer, Tab activeTab, bool isCollapsed) {
       // Vách ngăn dither mảnh giữa 2 tab inactive liền kề
       if (i < 3 && (i + 1) != activeIndex) {
         const int sepX = tabX + TAB_W - 1;
-        for (int y = ISLAND_Y + 14; y < ISLAND_Y + 36; ++y) {
+        for (int y = ISLAND_Y + 16; y < ISLAND_Y + 40; ++y) {
           if ((y & 1) == 0) {
             renderer.drawPixel(sepX, y, true);
           }
@@ -151,11 +151,14 @@ bool handleTouch(const MappedInputManager& mappedInput, Tab activeTab, bool& isC
   return false;
 }
 
-bool handleSwipe(MappedInputManager::SwipeDir swipe, bool& isCollapsed, int startY) {
+bool handleSwipe(MappedInputManager::SwipeDir swipe, bool& isCollapsed, int startX, int startY) {
   if (isCollapsed) {
-    // Khi đang thu gọn (chỉ hiện gạch dưới):
-    // Vuốt ngón tay lên trên (SwipeDir::Up) từ vùng đáy hoặc màn hình -> BUNG MỞ DOCK!
-    if (swipe == MappedInputManager::SwipeDir::Up) {
+    // Khi đang thu gọn: Chỉ khi vuốt ngón tay lên từ vùng vạch chỉ báo sát đáy (startY >= 730) mới bung mở Dock.
+    // Vuốt ở giữa màn hình (để cuộn sách, đọc danh sách) tuyệt đối không được tự động hiện Dock.
+    if (swipe == MappedInputManager::SwipeDir::Up && startY >= 730) {
+      if (startX >= 0 && (startX < 100 || startX > 380)) {
+        return false;
+      }
       isCollapsed = false;
       setGlobalCollapsed(false);
       resetAutoHideTimer();

@@ -176,9 +176,13 @@ void UiListActivity::loop() {
 
   // Swipes scroll the viewport; the selection stays put (it may scroll
   // off-screen) and button navigation pulls the view back to it.
-  const auto swipe = mappedInput.wasSwipe();
+  int swipeStartX = -1, swipeStartY = -1;
+  const auto swipe = mappedInput.wasSwipe(&swipeStartX, &swipeStartY);
   if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
-    onListSwiped(swipe);
+    onListSwiped(swipe, swipeStartX, swipeStartY);
+    if (swipe == MappedInputManager::SwipeDir::Up && swipeStartY >= 730) {
+      return;
+    }
     auto& n = activeNav();
     const int delta = swipe == MappedInputManager::SwipeDir::Up ? n.inputPageRows() : -n.inputPageRows();
     LOG_DBG("LIST", "%s swipe delta=%d count=%d", name.c_str(), delta, listCount());

@@ -140,8 +140,8 @@ bool SettingsListActivity::handleCustomInput() {
   return false;
 }
 
-void SettingsListActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
-  if (BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+void SettingsListActivity::onListSwiped(MappedInputManager::SwipeDir swipe, int startX, int startY) {
+  if (BottomDockBar::handleSwipe(swipe, dockCollapsed, startX, startY)) {
     resetUi();
   }
 }

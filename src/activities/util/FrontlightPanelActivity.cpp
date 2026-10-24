@@ -203,8 +203,8 @@ void FrontlightPanelActivity::runTile(const int idx) {
       }
       break;
     }
-    case 4: {  // Truyền tập tin (Mở Web Server tải sách lên có sẵn của hệ thống)
-      activityManager.goToFileTransfer();
+    case 4: {  // Cài đặt hệ thống (Mở màn hình SettingsActivity)
+      activityManager.goToSettings();
       break;
     }
     default:
@@ -412,7 +412,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
         fui::bitmapFromIcon(icon_refresh_cw_24),
         fui::bitmapFromIcon(icon_pointer_24),
         fui::bitmapFromIcon(icon_book_open_24),
-        fui::bitmapFromIcon(icon_upload_24)};
+        fui::bitmapFromIcon(icon_settings_24)};
     const fui::State states[kTileCount] = {
         SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal,
         fui::StateNormal,

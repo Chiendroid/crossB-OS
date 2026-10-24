@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Epub/converters/JpegToFramebufferConverter.h>
+#include <FontCacheManager.h>
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -971,6 +972,9 @@ void WebReaderActivity::promptWifiConnection(const std::string& nextUrl) {
 
 void WebReaderActivity::onEnter() {
   Activity::onEnter();
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
+  }
   if (WiFi.status() != WL_CONNECTED) {
     promptWifiConnection(currentUrl);
     return;
@@ -984,6 +988,10 @@ void WebReaderActivity::onEnter() {
 
 void WebReaderActivity::onExit() {
   Activity::onExit();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
   cleanupCachedImages();
   pages.clear();
   pendingBlocks.clear();
@@ -1083,6 +1091,9 @@ void WebReaderActivity::reloadPage() {
 
 void WebReaderActivity::startLoadUrl(const std::string& rawUrl) {
   if (rawUrl.empty()) return;
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
+  }
   ensureWifiConnected();
   if (WiFi.status() != WL_CONNECTED) {
     promptWifiConnection(rawUrl);
@@ -1149,7 +1160,11 @@ void WebReaderActivity::stepLoadPipeline() {
       activityManager.requestUpdateAndWait();
       return;
     }
-    if (ESP.getFreeHeap() < 35000) {
+    // Thu hồi font cache trước khi kết nối mạng để giải phóng tối đa RAM
+    if (auto* fontCache = renderer.getFontCacheManager()) {
+      fontCache->releaseSdFontCaches();
+    }
+    if (ESP.getFreeHeap() < 12000) {
       loadPhase = LoadPhase::Idle;
       isLoading = false;
       loadingProgress = 0;
@@ -1163,15 +1178,16 @@ void WebReaderActivity::stepLoadPipeline() {
 #endif
     std::string fetchUrl = currentUrl;
     int code = -1;
-    std::string responseBody;
+    const char* kTempWebFile = "/tmp_web.html";
+    size_t downloadedBytes = 0;
 
-    auto performHttpGet = [&](const std::string& initialUrl, std::string& outBody, std::string& finalUrl) -> int {
+    auto performHttpGet = [&](const std::string& initialUrl, const char* outFilePath, std::string& finalUrl) -> int {
       std::string urlToTry = initialUrl;
       int status = -1;
       for (int redirectCount = 0; redirectCount < 5; ++redirectCount) {
         freeink::SecureHttpClient http;
         http.setInsecure();
-        http.setTimeout(12000);
+        http.setTimeout(20000);
         if (mobileMode) {
           http.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1");
           http.addHeader("Sec-CH-UA-Mobile", "?1");
@@ -1180,6 +1196,7 @@ void WebReaderActivity::stepLoadPipeline() {
           http.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
         }
         http.addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        http.addHeader("Accept-Encoding", "identity");
         http.addHeader("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
 
         const std::string cookies = getCookiesForUrl(urlToTry);
@@ -1190,7 +1207,23 @@ void WebReaderActivity::stepLoadPipeline() {
         if (!http.begin(urlToTry)) {
           return -1;
         }
-        status = http.GET();
+
+        Storage.remove(outFilePath);
+        HalFile f;
+        if (!Storage.openFileForWrite("WEB", outFilePath, f)) {
+          return -1;
+        }
+
+        size_t totalReceived = 0;
+        status = http.GET([&](const uint8_t* data, size_t len) -> bool {
+          if (totalReceived + len > 650000) { // Cắt an toàn ở 650KB
+            return false;
+          }
+          f.write(data, len);
+          totalReceived += len;
+          return true;
+        });
+        f.close();
 
         std::string setCookie = http.getHeader("Set-Cookie");
         if (setCookie.empty()) setCookie = http.getHeader("set-cookie");
@@ -1209,8 +1242,8 @@ void WebReaderActivity::stepLoadPipeline() {
           }
         }
         if (status == 200 || status == 202) {
-          outBody = std::string(http.getString().c_str());
           status = 200;
+          downloadedBytes = totalReceived;
         }
         break;
       }
@@ -1221,45 +1254,40 @@ void WebReaderActivity::stepLoadPipeline() {
     const std::string dom = extractDomainFromUrl(fetchUrl);
     if ((dom == "google.com" || dom == "google.com.vn") && fetchUrl.find("q=") == std::string::npos) {
       code = 200;
-      responseBody =
-          "<title>Google Tìm kiếm</title>"
-          "<h1>Google Tìm kiếm</h1>"
-          "<p>Chạm vào ô tìm kiếm phía trên hoặc thanh địa chỉ để nhập từ khóa tra cứu nhanh trên web.</p>";
+      Storage.remove(kTempWebFile);
+      HalFile f;
+      if (Storage.openFileForWrite("WEB", kTempWebFile, f)) {
+        const char* gContent =
+            "<title>Google Tìm kiếm</title>"
+            "<h1>Google Tìm kiếm</h1>"
+            "<p>Chạm vào ô tìm kiếm phía trên hoặc thanh địa chỉ để nhập từ khóa tra cứu nhanh trên web.</p>";
+        f.write(reinterpret_cast<const uint8_t*>(gContent), std::strlen(gContent));
+        f.close();
+        downloadedBytes = std::strlen(gContent);
+      }
     } else if ((dom == "google.com" || dom == "google.com.vn") && fetchUrl.find("q=") != std::string::npos) {
       const size_t qPos = fetchUrl.find("q=");
       std::string rawQ = fetchUrl.substr(qPos + 2);
       const size_t ampPos = rawQ.find('&');
       if (ampPos != std::string::npos) rawQ = rawQ.substr(0, ampPos);
       std::string dummyUrl;
-      code = performHttpGet("https://html.duckduckgo.com/html/?q=" + rawQ, responseBody, dummyUrl);
-      if (code != 200 || responseBody.empty()) {
-        code = performHttpGet("https://www.bing.com/search?q=" + rawQ, responseBody, dummyUrl);
+      code = performHttpGet("https://html.duckduckgo.com/html/?q=" + rawQ, kTempWebFile, dummyUrl);
+      if (code != 200 || !Storage.exists(kTempWebFile)) {
+        code = performHttpGet("https://www.bing.com/search?q=" + rawQ, kTempWebFile, dummyUrl);
       }
     } else {
-      code = performHttpGet(fetchUrl, responseBody, resolvedFinal);
+      code = performHttpGet(fetchUrl, kTempWebFile, resolvedFinal);
       if (code == 200) {
         currentUrl = resolvedFinal;
       }
     }
 
-    if (code == 200 && responseBody.size() > 400000) {
-      loadPhase = LoadPhase::Idle;
-      isLoading = false;
-      loadingProgress = 0;
-      errorKind = WebErrorKind::OutOfMemory;
-      errorHttpCode = 200;
-      errorMessage = "Dung lượng trang vượt giới hạn RAM (>400KB)";
-      state = State::Error;
-      activityManager.requestUpdateAndWait();
-      return;
-    }
-
-    if (code == 200 && !responseBody.empty()) {
-      totalCacheBytes += responseBody.size();
-      pendingHtml = std::move(responseBody);
+    if (code == 200 && Storage.exists(kTempWebFile) && downloadedBytes > 0) {
+      totalCacheBytes += downloadedBytes;
       loadPhase = LoadPhase::ParseHtml;
       updateProgressImmediate(68);
     } else {
+      Storage.remove(kTempWebFile);
       loadPhase = LoadPhase::Idle;
       isLoading = false;
       loadingProgress = 0;
@@ -1276,7 +1304,7 @@ void WebReaderActivity::stepLoadPipeline() {
       } else if (code <= 0) {
         errorKind = WebErrorKind::ConnectionTimeout;
         errorMessage = "Hết thời gian chờ hoặc không thể kết nối";
-      } else if (responseBody.empty()) {
+      } else if (downloadedBytes == 0) {
         errorKind = WebErrorKind::EmptyContent;
         errorMessage = "Trang web rỗng không có nội dung";
       } else {
@@ -1291,8 +1319,92 @@ void WebReaderActivity::stepLoadPipeline() {
 
   if (loadPhase == LoadPhase::ParseHtml) {
     cleanupCachedImages();
-    parseHtmlToBlocks(pendingHtml);
-    pendingHtml.clear();
+
+    // Stream-filter HTML từ file tạm trên thẻ nhớ: loại bỏ script/style/svg giúp giảm 90% RAM
+    const char* kTempWebFile = "/tmp_web.html";
+    std::string cleanHtml;
+    bool readOk = false;
+    HalFile f;
+    if (Storage.openFileForRead("WEB", kTempWebFile, f)) {
+      const size_t sz = f.size();
+      if (sz > 0) {
+        cleanHtml.reserve(std::min<size_t>(sz, 45000));
+        char buf[512];
+        bool inTag = false;
+        std::string currentTag;
+        bool skipContent = false;
+        std::string skipTagName;
+        char quote = 0;
+
+        while (f.available() > 0 && cleanHtml.size() < 120000) {
+          int n = f.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf));
+          if (n <= 0) break;
+          for (int i = 0; i < n; ++i) {
+            char c = buf[i];
+            if (!inTag && c == '<') {
+              inTag = true;
+              currentTag.clear();
+              quote = 0;
+              continue;
+            }
+            if (inTag) {
+              if (quote != 0) {
+                if (c == quote) quote = 0;
+                currentTag += c;
+                continue;
+              } else if (c == '"' || c == '\'') {
+                quote = c;
+                currentTag += c;
+                continue;
+              }
+              if (c != '>') {
+                if (currentTag.size() < 32) currentTag += c;
+                continue;
+              }
+              inTag = false;
+              std::string tagLower = currentTag;
+              std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+              while (!tagLower.empty() && isspace(static_cast<unsigned char>(tagLower.front()))) {
+                tagLower.erase(0, 1);
+              }
+              if (!tagLower.empty() && tagLower[0] == '/') {
+                std::string closeTag = tagLower.substr(1);
+                size_t sp = closeTag.find_first_of(" \t\r\n");
+                if (sp != std::string::npos) closeTag = closeTag.substr(0, sp);
+                if (skipContent && closeTag == skipTagName) {
+                  skipContent = false;
+                  skipTagName.clear();
+                }
+              } else {
+                size_t sp = tagLower.find_first_of(" \t\r\n");
+                std::string openTag = (sp != std::string::npos) ? tagLower.substr(0, sp) : tagLower;
+                if (openTag == "script" || openTag == "style" || openTag == "svg" || openTag == "noscript" || openTag == "iframe") {
+                  skipContent = true;
+                  skipTagName = openTag;
+                }
+              }
+              if (!skipContent) {
+                cleanHtml += '<';
+                cleanHtml += currentTag;
+                cleanHtml += '>';
+              }
+              continue;
+            }
+            if (!skipContent) {
+              cleanHtml += c;
+            }
+          }
+        }
+        readOk = !cleanHtml.empty();
+      }
+      f.close();
+    }
+    Storage.remove(kTempWebFile);
+
+    if (readOk && !cleanHtml.empty()) {
+      parseHtmlToBlocks(cleanHtml);
+      cleanHtml.clear();
+    }
 
     if (pendingBlocks.empty()) {
       loadPhase = LoadPhase::Idle;
@@ -2051,7 +2163,7 @@ bool WebReaderActivity::handleMenuTouch(int x, int y) {
   if (!menuOpen) return false;
 
   constexpr int menuX = 124;
-  constexpr int menuY = 64;
+  constexpr int menuY = 76;
   constexpr int menuW = 344;
   constexpr int rowCount = 11;
   constexpr int rowH = 39;
@@ -2140,7 +2252,7 @@ bool WebReaderActivity::handleMenuTouch(int x, int y) {
 }
 
 bool WebReaderActivity::handleToolbarTouch(int x, int y) {
-  if (y < 0 || y > 62) return false;
+  if (y < 0 || y > 76) return false;
 
   // 1. Nút Back [←] (x: 10..54)
   if (x >= 8 && x <= 56) {
@@ -2188,7 +2300,7 @@ void WebReaderActivity::loop() {
   int longX = 0, longY = 0;
   if (mappedInput.wasScreenLongPress(longX, longY)) {
     if (state == State::Bookmarks && !menuOpen && !exitConfirmOpen && !bookmarkActionOpen) {
-      constexpr int startY = 104;
+      constexpr int startY = 114;
       constexpr int colW = 216;
       constexpr int cardH = 162;
       constexpr int gapX = 16;
@@ -2241,7 +2353,7 @@ void WebReaderActivity::loop() {
     }
 
     if (state == State::Bookmarks) {
-      constexpr int startY = 104;
+      constexpr int startY = 114;
       constexpr int colW = 216;
       constexpr int cardH = 162;
       constexpr int gapX = 16;
@@ -2437,7 +2549,7 @@ void WebReaderActivity::render(RenderLock&&) {
 
 void WebReaderActivity::renderBrowserToolbar() {
   const int screenW = renderer.getScreenWidth();
-  constexpr int barY = 8;
+  constexpr int barY = 20;
   constexpr int barH = 42;
 
   // 1. Nút Back [←] (44x42, viền 2px đồng bộ tuyệt đối với thanh địa chỉ và nút Menu)
@@ -2482,25 +2594,25 @@ void WebReaderActivity::renderBrowserToolbar() {
   drawModernButton(renderer, menuBtnX, barY, menuBtnW, barH, 12, menuOpen, 2);
   drawLucideIcon(renderer, icon_browser_menu_24, menuBtnX + 10, barY + 9, menuOpen);
 
-  // 4. Cây Progress Loading ngay dưới chân chỗ điền địa chỉ (y = 53..59)
+  // 4. Cây Progress Loading ngay dưới chân chỗ điền địa chỉ (y = 65..71)
   if (isLoading && loadingProgress > 0) {
     constexpr int trackX = omniX + 10;
     constexpr int trackW = omniW - 20;
-    constexpr int trackY = 53;
+    constexpr int trackY = 65;
     constexpr int trackH = 6;
     renderer.fillRoundedRect(trackX, trackY, trackW, trackH, 3, Color::White);
     renderer.drawRoundedRect(trackX, trackY, trackW, trackH, 1, 3, true);
     const int fillW = std::max(14, (trackW * loadingProgress) / 100);
     renderer.fillRoundedRect(trackX, trackY, fillW, trackH, 3, Color::Black);
-    renderer.drawLine(0, 61, screenW - 1, 61, 1, true);
+    renderer.drawLine(0, 73, screenW - 1, 73, 1, true);
   } else {
-    renderer.drawLine(0, 58, screenW - 1, 58, 1, true);
+    renderer.drawLine(0, 70, screenW - 1, 70, 1, true);
   }
 }
 
 void WebReaderActivity::renderHamburgerMenu() {
   constexpr int menuX = 124;
-  constexpr int menuY = 64;
+  constexpr int menuY = 76;
   constexpr int menuW = 344;
   constexpr int rowH = 39;
   constexpr int rowCount = 11;
@@ -2572,12 +2684,12 @@ void WebReaderActivity::renderBookmarks() {
   renderBrowserToolbar();
 
   // Tiêu đề gọn gàng bên trái kèm icon quả địa cầu và chỉ dẫn bấm giữ bên phải
-  drawLucideIcon(renderer, icon_browser_globe_24, 18, 71, false);
-  renderer.drawText(SMALL_FONT_ID, 48, 76, "TRANG WEB THƯỜNG DÙNG", true, EpdFontFamily::BOLD);
-  renderer.drawText(SMALL_FONT_ID, 276, 76, "Giữ thẻ để sửa/xóa", true, EpdFontFamily::REGULAR);
+  drawLucideIcon(renderer, icon_browser_globe_24, 18, 76, false);
+  renderer.drawText(SMALL_FONT_ID, 48, 81, "TRANG WEB THƯỜNG DÙNG", true, EpdFontFamily::BOLD);
+  renderer.drawText(SMALL_FONT_ID, 276, 81, "Giữ thẻ để sửa/xóa", true, EpdFontFamily::REGULAR);
 
   // Lưới Thẻ Trang Web Hiện Đại (2 cột x 3 hàng, toàn bộ Logo đều chuẩn kích thước 36x36)
-  constexpr int startY = 104;
+  constexpr int startY = 112;
   constexpr int colW = 216;
   constexpr int cardH = 162;
   constexpr int gapX = 16;
@@ -2660,27 +2772,25 @@ void WebReaderActivity::renderBookmarks() {
   }
 
   // Khu vực: BÀI VIẾT ĐÃ TẢI VỀ (ĐỌC OFFLINE)
-  constexpr int offHeaderY = 642;
+  constexpr int offHeaderY = 646;
   drawLucideIcon(renderer, icon_book_open_24, 18, offHeaderY, false);
-  renderer.drawText(SMALL_FONT_ID, 48, offHeaderY + 5, "BÀI VIẾT OFFLINE (CHỈ CHỮ)", true, EpdFontFamily::BOLD);
+  renderer.drawText(SMALL_FONT_ID, 48, offHeaderY + 5, "BÀI VIẾT OFFLINE", true, EpdFontFamily::BOLD);
   if (!offlineArticles.empty()) {
-    std::string countStr = "(" + std::to_string(offlineArticles.size()) + " bài)";
-    renderer.drawText(SMALL_FONT_ID, 276, offHeaderY + 5, countStr.c_str(), true);
+    std::string countStr = std::to_string(offlineArticles.size()) + " bài";
+    renderer.drawText(SMALL_FONT_ID, 180, offHeaderY + 5, countStr.c_str(), true);
   }
 
   if (offlineArticles.empty()) {
-    // Khung gợi ý nhẹ khi chưa tải bài nào
-    constexpr int boxY = 672;
-    constexpr int boxH = 114;
-    renderer.fillRoundedRect(16, boxY, 448, boxH, 10, Color::White);
-    renderer.drawRoundedRect(16, boxY, 448, boxH, 1, 10, true);
-    renderer.drawText(SMALL_FONT_ID, 28, boxY + 18, "Chưa có bài viết tải về máy", true, EpdFontFamily::BOLD);
-    renderer.drawText(SMALL_FONT_ID, 28, boxY + 44, "Mở trang web > Bấm Menu [☰] > Chọn 'Tải về đọc Offline'", true);
-    renderer.drawText(SMALL_FONT_ID, 28, boxY + 70, "để lưu toàn bộ bài viết đọc khi không có mạng Wi-Fi.", true);
+    // Khung gọn gàng khi chưa tải bài nào (đã bỏ toàn bộ chỉ dẫn dài dòng)
+    constexpr int boxY = 676;
+    constexpr int boxH = 48;
+    renderer.fillRoundedRect(16, boxY, 448, boxH, 8, Color::White);
+    renderer.drawRoundedRect(16, boxY, 448, boxH, 1, 8, true);
+    renderer.drawText(SMALL_FONT_ID, 28, boxY + 16, "Chưa có bài viết tải về máy", true);
   } else {
     // Hiển thị tối đa 2 bài viết offline gần nhất
     for (size_t i = 0; i < offlineArticles.size() && i < 2; ++i) {
-      const int cardY = 672 + static_cast<int>(i) * 58;
+      const int cardY = 676 + static_cast<int>(i) * 58;
       const auto& art = offlineArticles[i];
 
       renderer.fillRoundedRect(16, cardY, 448, 52, 8, Color::White);
@@ -2713,7 +2823,7 @@ void WebReaderActivity::renderViewing() {
 
   if (!pages.empty() && currentPage < static_cast<int>(pages.size())) {
     const auto& slice = pages[currentPage];
-    int y = 68;
+    int y = 82;
 
     for (const auto& item : slice.items) {
       if (y + item.pixelHeight > screenH - 58) break;

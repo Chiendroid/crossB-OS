@@ -142,6 +142,7 @@ void SettingsActivity::rebuildSettings() {
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
   // asset isn't published yet just report no update available.
   addAction(SettingsSection::General, StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates);
+  addAction(SettingsSection::General, StrId::STR_UPDATE, SettingAction::OtaChannel);
   addAction(SettingsSection::General, StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate);
   addAction(SettingsSection::General, StrId::STR_ABOUT, SettingAction::About);
   rebuildRowItems();
@@ -172,7 +173,11 @@ void SettingsActivity::rebuildRowItems() {
   rowItems_.reserve(settings.size());
   for (size_t i = 0; i < settings.size(); i++) {
     fui::ListItem item;
-    item.label = I18N.get(settings[i].nameId);
+    if (settings[i].action == SettingAction::OtaChannel) {
+      item.label = "K\u00eanh c\u1eadp nh\u1eadt OTA";
+    } else {
+      item.label = I18N.get(settings[i].nameId);
+    }
     item.actionValue = static_cast<int16_t>(i);
     rowItems_.push_back(item);
   }
@@ -346,6 +351,14 @@ void SettingsActivity::toggleSelectedSetting() {
       case SettingAction::CheckForUpdates:
         startActivityForResult(std::make_unique<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::OtaChannel:
+        SETTINGS.otaChannel = (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV)
+                                  ? CrossPointSettings::OTA_CHANNEL_RELEASE
+                                  : CrossPointSettings::OTA_CHANNEL_DEV;
+        SETTINGS.saveToFile();
+        rebuildSettings();
+        requestUpdate();
+        break;
       case SettingAction::SdFirmwareUpdate:
         startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -462,6 +475,9 @@ void SettingsActivity::openSleepTimeoutPicker() {
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
   if (setting.action == SettingAction::HomeButton) return tr(STR_CONFIGURE);
   if (setting.action == SettingAction::Plugins) return SETTINGS.pluginsEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED);
+  if (setting.action == SettingAction::OtaChannel) {
+    return SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV ? "Th\u1eed nghi\u1ec7m (Dev)" : "\u1ed4n \u0111\u1ecbnh (Release)";
+  }
   if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     // Guard like the valueGetter branch below: a corrupt/migrated settings
     // byte must not index past the enum table.

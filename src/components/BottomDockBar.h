@@ -18,10 +18,10 @@ enum class Tab : uint8_t {
 // Kích thước và thông số hình học của Đảo nổi Neo-Brutalist
 constexpr int ISLAND_MARGIN_X = 24;
 constexpr int ISLAND_W = 432;           // 480 - 2 * 24
-constexpr int ISLAND_H = 50;
-constexpr int ISLAND_BOTTOM_GAP = 12;
-constexpr int ISLAND_Y = 800 - ISLAND_BOTTOM_GAP - ISLAND_H;  // 738px
-constexpr int ISLAND_RADIUS = 12;
+constexpr int ISLAND_H = 56;
+constexpr int ISLAND_BOTTOM_GAP = 10;
+constexpr int ISLAND_Y = 800 - ISLAND_BOTTOM_GAP - ISLAND_H;  // 734px
+constexpr int ISLAND_RADIUS = 14;
 constexpr int TAB_W = ISLAND_W / 4;     // 108px
 
 // Kích thước của thanh mỏng khi COLLAPSED (Indicator bar)
@@ -35,7 +35,7 @@ constexpr int BAR_Y = 800 - BAR_BOTTOM_GAP - BAR_H;           // 784px
 
 // Chiều cao lề dưới cần chừa cho danh sách nội dung:
 // Khi thu gọn chừa 32px (danh sách dừng ở 768px, cách thanh bar 16px đệm an toàn)
-constexpr int RESERVED_EXPANDED = 66;
+constexpr int RESERVED_EXPANDED = 72;
 constexpr int RESERVED_COLLAPSED = 32;
 
 inline int getBottomReservedHeight(bool isCollapsed) {
@@ -56,10 +56,10 @@ void render(GfxRenderer& renderer, Tab activeTab, bool isCollapsed);
 bool handleTouch(const MappedInputManager& mappedInput, Tab activeTab, bool& isCollapsed, bool& needUpdate);
 
 // Xử lý cử chỉ vuốt (Swipe):
-// - Khi đang thu gọn: vuốt lên (SwipeDir::Up) -> mở rộng dock (isCollapsed = false)
+// - Khi đang thu gọn: vuốt lên (SwipeDir::Up) từ vạch chỉ báo sát đáy -> mở rộng dock (isCollapsed = false)
 // - Khi đang mở rộng: vuốt xuống (SwipeDir::Down) hoặc cuộn -> thu gọn dock (isCollapsed = true)
 // Trả về true nếu trạng thái isCollapsed bị thay đổi
-bool handleSwipe(MappedInputManager::SwipeDir swipe, bool& isCollapsed, int startY = -1);
+bool handleSwipe(MappedInputManager::SwipeDir swipe, bool& isCollapsed, int startX = -1, int startY = -1);
 
 // Thời gian chờ tự động ẩn dock (5 giây)
 constexpr uint32_t AUTO_HIDE_TIMEOUT_MS = 5000;

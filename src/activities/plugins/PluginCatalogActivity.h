@@ -201,7 +201,7 @@ class PluginCatalogActivity final : public CatalogActivity {
   bool handleCustomInput() override;
   void onBackButton() override;
   void drawFooter() override;
-  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe, int startX = -1, int startY = -1) override;
 
   bool dockCollapsed = false;
   OptionPopup optionPopup;

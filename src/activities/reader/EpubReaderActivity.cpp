@@ -337,108 +337,7 @@ int EpubReaderActivity::bookPercentFor(const ChapterPosition& position) const {
 
 void EpubReaderActivity::openReaderMenu() {
   pendingManualTurn = 0;
-  const ChapterPosition position = chapterPosition();
-  const int bookProgressPercent = bookPercentFor(position);
-  const float bookProgress = static_cast<float>(bookProgressPercent) / 100.0f;
-  const uint32_t chapterPage = position.displayPage();
-  const uint32_t chapterPageCount = position.totalPages;
-  const bool chapterPageCountEstimated = (section && (section->isBuilding() || section->isPartial()));
-
-  auto drawer = std::make_unique<EpubReaderDrawerActivity>(
-      renderer, mappedInput, epub,
-      touchReaderPreviewModel.get(),
-      bookProgress, chapterPage, chapterPageCount, chapterPageCountEstimated,
-      !currentPageFootnotes.empty(),
-      SETTINGS.dictionaryName[0] != '\0',
-      !cachedBookmarks.empty(),
-      CLIPPINGS.hasClippings(),
-      currentPageBookmarked,
-      false, // isBookCompleted
-      false, // showsTimeRemaining
-      false, // tracksReadingStats
-      false, // tracksBookStats
-      0, 0,  // stableCurrentPage, stablePageCount
-      0, false, // auto page turn
-      nullptr, nullptr, // saveOptionsCallback
-      nullptr, nullptr, // saveGlobalSettingsCallback
-      nullptr, nullptr, // beginGlobalSettingsEditCallback
-      nullptr, nullptr, // endGlobalSettingsEditCallback
-      "", 12, false, nullptr, nullptr, // dictionary font
-      touchReaderDrawerState);
-
-  startActivityForResult(std::move(drawer), [this](const ActivityResult& result) {
-    if (const auto* menu = std::get_if<MenuResult>(&result.data)) {
-      touchReaderDrawerState = menu->drawerState;
-      if (SETTINGS.orientation != menu->orientation) {
-        applyOrientation(menu->orientation);
-      }
-      toggleAutoPageTurn(menu->pageTurnOption);
-      if (menu->settingsChanged) {
-        sdFontSystem.ensureLoaded(renderer);
-        section.reset();
-        requestUpdate();
-      }
-      if (!result.isCancelled) {
-        const auto action = static_cast<EpubReaderMenuAction>(menu->action);
-        switch (action) {
-          case EpubReaderMenuAction::SELECT_CHAPTER:
-            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER);
-            break;
-          case EpubReaderMenuAction::FOOTNOTES:
-            openFootnoteSelect(true);
-            break;
-          case EpubReaderMenuAction::GO_TO_PERCENT:
-            jumpToPercent(menu->drawerValue > 0 ? menu->drawerValue / 100 : bookPercentFor(chapterPosition()));
-            break;
-          case EpubReaderMenuAction::BOOKMARK_TOGGLE:
-            addBookmark();
-            break;
-          case EpubReaderMenuAction::VIEW_BOOKMARKS:
-            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::BOOKMARKS);
-            break;
-          case EpubReaderMenuAction::SAVE_CLIPPING:
-            startClipSelection();
-            break;
-          case EpubReaderMenuAction::VIEW_CLIPPINGS:
-            openClippings();
-            break;
-          case EpubReaderMenuAction::LOOKUP:
-            openDictionaryWordSelect();
-            break;
-          case EpubReaderMenuAction::GO_HOME:
-            onGoHome();
-            break;
-          case EpubReaderMenuAction::SYNC:
-            launchKOReaderSync();
-            break;
-          case EpubReaderMenuAction::DISPLAY_QR:
-            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::DISPLAY_QR);
-            break;
-          case EpubReaderMenuAction::SCREENSHOT:
-            pendingScreenshot = true;
-            requestUpdate();
-            break;
-          case EpubReaderMenuAction::DELETE_CACHE:
-            onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::DELETE_CACHE);
-            break;
-          case EpubReaderMenuAction::STATUS_BAR_SETTINGS:
-            startActivityForResult(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput),
-                                   [this](const ActivityResult&) { openReaderMenu(); });
-            break;
-          default:
-            requestUpdate();
-            break;
-        }
-      } else {
-        requestUpdate();
-      }
-      if (menu->reopenDrawer) {
-        openReaderMenu();
-      }
-      return;
-    }
-    requestUpdate();
-  });
+  openOverlay(Overlay::Toolbar);
 }
 
 // Runs on the render task, under its lock, right before every chapter build. The page turner's
@@ -736,7 +635,10 @@ void EpubReaderActivity::loop() {
   }
 
   if (progressSavePending && (millis() - lastProgressChangeMs >= PROGRESS_SAVE_DEBOUNCE_MS)) {
-    flushPendingProgressSave();
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock() && section && !section->isBuilding()) {
+      flushPendingProgressSave();
+    }
   }
 
   constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
@@ -2144,7 +2046,10 @@ void EpubReaderActivity::commitCurrentReadingStats() {
 }
 
 void EpubReaderActivity::prepareForSleep() {
-  flushPendingProgressSave();
+  {
+    RenderLock lock;
+    flushPendingProgressSave();
+  }
   commitCurrentReadingStats();
   ReaderActivity::prepareForSleep();
 }
@@ -2170,9 +2075,11 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
 }
 
 void EpubReaderActivity::rememberCurrentContentOffset() {
-  cachedVisibleTextOffset.reset();
   if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
-    cachedVisibleTextOffset = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(section->currentPage));
+    const auto offset = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(section->currentPage));
+    if (offset.has_value()) {
+      cachedVisibleTextOffset = offset;
+    }
   }
 }
 
@@ -2759,9 +2666,7 @@ static_assert(std::size(kAlignIds) == CrossPointSettings::PARAGRAPH_ALIGNMENT_CO
 }  // namespace
 
 bool EpubReaderActivity::usesToolbarMenu() const {
-  // Both board classes drive the same chrome: touch through the FreeInkUI tap
-  // targets, buttons through the focused-tool pill and the panel cursor.
-  return SETTINGS.readerMenuStyle == CrossPointSettings::READER_MENU_TOOLBAR;
+  return true;
 }
 
 std::string EpubReaderActivity::currentChapterTitle() const {
@@ -2820,6 +2725,7 @@ void EpubReaderActivity::showTextRowPopup(const int row) {
       }
       overlayPopup.show(StrId::STR_FONT_SIZE, labels, curIdx, [this, sizes](int idx) {
         if (idx < 0 || idx >= static_cast<int>(sizes.size())) return;
+        if (SETTINGS.fontPointSize == sizes[idx]) return;
         SETTINGS.fontPointSize = sizes[idx];
         applyTextSettingLive();
       });
@@ -3131,6 +3037,7 @@ void EpubReaderActivity::handleOverlayInput() {
         fastRedraw();
         return;
       case ReaderToolbarUi::Event::FontSizeDec: {
+        if (RenderLock::peek() || (section && section->isBuilding())) return;
         const auto sizes = readerFontPointSizes(&sdFontSystem.registry(), SETTINGS.sdFontFamilyName);
         if (!sizes.empty()) {
           const uint8_t cur = snapToNearestPointSize(sizes, SETTINGS.fontPointSize);
@@ -3145,6 +3052,7 @@ void EpubReaderActivity::handleOverlayInput() {
         return;
       }
       case ReaderToolbarUi::Event::FontSizeInc: {
+        if (RenderLock::peek() || (section && section->isBuilding())) return;
         const auto sizes = readerFontPointSizes(&sdFontSystem.registry(), SETTINGS.sdFontFamilyName);
         if (!sizes.empty()) {
           const uint8_t cur = snapToNearestPointSize(sizes, SETTINGS.fontPointSize);
@@ -3499,12 +3407,18 @@ void EpubReaderActivity::applyReaderTextSettings() {
     }
     // Release the old parser and page table before settings serialization needs heap.
     section.reset();  // force re-pagination with the new settings
+    progressSavePending = false;
+
+    // Release old font caches so we free up heap/PSRAM before loading the new font size
+    if (auto* fcm = renderer.getFontCacheManager()) {
+      fcm->releaseSdFontCaches();
+    }
+
+    // (Re)load or unload the selected SD-card font for the current family/size.
+    // Crucial: Must be held within RenderLock so renderTask cannot access half-loaded/unloaded fonts!
+    sdFontSystem.ensureLoaded(renderer);
   }
   SETTINGS.saveToFile();
-  // (Re)load or unload the selected SD-card font for the current family/size.
-  // The reader otherwise only loads SD fonts on book open, so without this an
-  // in-reader font change wouldn't take effect until re-opening the book.
-  sdFontSystem.ensureLoaded(renderer);
 }
 
 // The More panel carries everything the classic list menu offers except the

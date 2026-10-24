@@ -41,6 +41,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/SleepActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -430,6 +431,22 @@ void enterDeepSleep(bool fromTimeout = false) {
   halTiltSensor.deepSleep();
   display.deepSleep();
   Storage.prepareForDeepSleep();
+
+  // Chỉ khi người dùng chọn màn hình ngủ là Đồng hồ tối hoặc Đồng hồ sáng thì mới bật RTC timer thức dậy mỗi phút
+  const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
+                             SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
+  if (isClockSleep) {
+    struct tm tInfo{};
+    int curSec = 0;
+    if (halClock.localTime(tInfo)) {
+      curSec = tInfo.tm_sec;
+    }
+    uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
+    if (sleepSec < 5) sleepSec += 60;
+    LOG_INF("MAIN", "Arming RTC 1-minute timer wake for sleep clock: %llu s", sleepSec);
+    esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
+  }
+
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
@@ -508,6 +525,36 @@ void setup() {
 
   gpio.begin();
   powerManager.begin();
+
+  const auto rawWakeupCause = esp_sleep_get_wakeup_cause();
+  if (rawWakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
+    LOG_INF("MAIN", "Woke from RTC timer for sleep screen clock refresh");
+    halClock.begin();
+    if (Storage.begin()) {
+      SETTINGS.loadFromFile();
+      timezones::applyToClock();
+      const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
+                                 SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
+      if (isClockSleep) {
+        setupDisplayAndFonts(/*seamless=*/true);
+        SleepActivity sleepActivity(renderer, mappedInputManager);
+        sleepActivity.renderClockSleepScreen(/*fast=*/true);
+        display.deepSleep();
+        Storage.prepareForDeepSleep();
+
+        struct tm tInfo{};
+        int curSec = 0;
+        if (halClock.localTime(tInfo)) {
+          curSec = tInfo.tm_sec;
+        }
+        uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
+        if (sleepSec < 5) sleepSec += 60;
+        esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
+        powerManager.startDeepSleep(gpio);
+        return;
+      }
+    }
+  }
 
   // Board TX-power ceiling. It can only be set once WiFi has started, so it is
   // applied on every STA/AP start rather than at each place that brings WiFi up.

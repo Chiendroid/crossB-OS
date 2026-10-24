@@ -504,7 +504,7 @@ void PluginCatalogActivity::enterPluginPicker() {
   state = State::PLUGIN_PICKER;
   for (size_t i = 0; i < installedPlugins.size(); ++i) {
     if (installedPlugins[i].name != pickerReturnName) continue;
-    const int rootApps = rootMode ? 10 : 0;
+    const int rootApps = rootMode ? 11 : 0;
     const int prefixRows = rootApps + (showOpds ? 1 : 0) + (showPluginHubInstallRow ? 1 : 0);
     moveSelectionTo(prefixRows + static_cast<int>(i));
     break;
@@ -1229,8 +1229,8 @@ bool PluginCatalogActivity::handleCustomInput() {
   return CatalogActivity::handleCustomInput();
 }
 
-void PluginCatalogActivity::onListSwiped(MappedInputManager::SwipeDir swipe) {
-  if (rootMode && BottomDockBar::handleSwipe(swipe, dockCollapsed)) {
+void PluginCatalogActivity::onListSwiped(MappedInputManager::SwipeDir swipe, int startX, int startY) {
+  if (rootMode && BottomDockBar::handleSwipe(swipe, dockCollapsed, startX, startY)) {
     resetUi();
   }
 }
@@ -1416,7 +1416,7 @@ void PluginCatalogActivity::activateIndex(const int index) {
 void PluginCatalogActivity::onRowLongPress(const int index) {
   if (state != State::PLUGIN_PICKER) return;
 
-  const int rootApps = rootMode ? 10 : 0;
+  const int rootApps = rootMode ? 11 : 0;
   const int pluginStart = rootApps + (showOpds ? 1 : 0);
   const int syntheticHubRows = showPluginHubInstallRow ? 1 : 0;
   const int actualPluginIndex = index - pluginStart - syntheticHubRows;

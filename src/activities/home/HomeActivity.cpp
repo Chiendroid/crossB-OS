@@ -408,8 +408,19 @@ void HomeActivity::loop() {
 
     int startX = 0, startY = 0;
     const auto swipe = mappedInput.wasSwipe(&startX, &startY);
-    if (BottomDockBar::handleSwipe(swipe, dockCollapsed, startY)) {
+    if (BottomDockBar::handleSwipe(swipe, dockCollapsed, startX, startY)) {
       coverGridUi->setDockCollapsed(dockCollapsed);
+      requestUpdate();
+      return;
+    }
+
+    if (swipe == MappedInputManager::SwipeDir::Up) {
+      selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
+      requestUpdate();
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Down) {
+      selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
       requestUpdate();
       return;
     }

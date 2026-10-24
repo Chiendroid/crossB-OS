@@ -52,7 +52,7 @@ class LibraryListActivity final : public UiTabListActivity {
   freeink::ui::TabIndicator tabIndicator(int index) const override;
   void onTabAction(int index) override;
   void stepTab(int direction) override;
-  void onListSwiped(MappedInputManager::SwipeDir swipe) override;
+  void onListSwiped(MappedInputManager::SwipeDir swipe, int startX = -1, int startY = -1) override;
   bool handleCustomInput() override;
   bool handleButtons() override;
   void navigateButtons() override;
