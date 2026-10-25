@@ -258,6 +258,11 @@ bool OtaUpdater::isUpdateNewer() const {
   sscanf(lStr, "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
   sscanf(cStr, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
 
+  // Hỗ trợ chuyển tiếp nâng cấp từ firmware cũ mang số hiệu 1.x.x sang crossB-OS 0.x.x
+  if (currentMajor >= 1 && latestMajor == 0) {
+    return true;
+  }
+
   if (latestMajor != currentMajor) return latestMajor > currentMajor;
   if (latestMinor != currentMinor) return latestMinor > currentMinor;
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
