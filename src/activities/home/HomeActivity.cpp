@@ -465,33 +465,48 @@ void HomeActivity::loop() {
       activateSelection();
       return;
     }
-    // Side page buttons walk the covers, front Left/Right walk the tabs
-    // (selectorIndex is flat: books first, then the tab items). A press while
-    // selection sits in the other band jumps into this band first.
+    // On X4 Pro and boards without front Left/Right buttons, Up/Down walks the entire
+    // menu (covers followed by the dock tabs) so settings/library remain accessible.
+    const int totalCount = getMenuItemCount();
     const int bookCount = static_cast<int>(recentBooks.size());
-    const auto cycleBand = [this](const int base, const int count, const int dir) {
-      if (count <= 0) return;
-      int idx = selectorIndex - base;
-      if (idx < 0 || idx >= count) {
-        idx = dir > 0 ? 0 : count - 1;
-      } else {
-        idx = (idx + count + dir) % count;
+    auto cycleAll = [this, totalCount, bookCount](int dir) {
+      if (totalCount <= 0) return;
+      selectorIndex = (selectorIndex + totalCount + dir) % totalCount;
+      if (selectorIndex >= bookCount && dockCollapsed) {
+        dockCollapsed = false;
+        if (coverGridUi) coverGridUi->setDockCollapsed(false);
       }
-      selectorIndex = base + idx;
       requestUpdate();
     };
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
-                                         [&cycleBand, bookCount] { cycleBand(0, bookCount, -1); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                         [&cycleBand, bookCount] { cycleBand(0, bookCount, +1); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this, &cycleBand] {
-      const int bookCount = static_cast<int>(recentBooks.size());
-      cycleBand(bookCount, getMenuItemCount() - bookCount, -1);
-    });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this, &cycleBand] {
-      const int bookCount = static_cast<int>(recentBooks.size());
-      cycleBand(bookCount, getMenuItemCount() - bookCount, +1);
-    });
+
+    if (BoardConfig::isX4Pro() || BoardConfig::ACTIVE.input.left < 0) {
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [cycleAll] { cycleAll(-1); });
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [cycleAll] { cycleAll(+1); });
+    } else {
+      const auto cycleBand = [this](const int base, const int count, const int dir) {
+        if (count <= 0) return;
+        int idx = selectorIndex - base;
+        if (idx < 0 || idx >= count) {
+          idx = dir > 0 ? 0 : count - 1;
+        } else {
+          idx = (idx + count + dir) % count;
+        }
+        selectorIndex = base + idx;
+        requestUpdate();
+      };
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
+                                           [&cycleBand, bookCount] { cycleBand(0, bookCount, -1); });
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
+                                           [&cycleBand, bookCount] { cycleBand(0, bookCount, +1); });
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this, &cycleBand] {
+        const int bookCount = static_cast<int>(recentBooks.size());
+        cycleBand(bookCount, getMenuItemCount() - bookCount, -1);
+      });
+      buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this, &cycleBand] {
+        const int bookCount = static_cast<int>(recentBooks.size());
+        cycleBand(bookCount, getMenuItemCount() - bookCount, +1);
+      });
+    }
     return;
   }
 

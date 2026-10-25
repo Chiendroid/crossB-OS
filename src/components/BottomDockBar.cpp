@@ -110,9 +110,8 @@ bool handleTouch(const MappedInputManager& mappedInput, Tab activeTab, bool& isC
   }
 
   if (isCollapsed) {
-    // Khi đang thu gọn: Chạm vào vùng trung tâm đáy (y >= 755 và x nằm trong khoảng 96..384) để bung mở Dock
-    // Giúp các hàng sách cuối danh sách và 2 lề không bị cấn nhầm lệnh bung dock
-    if (touchY >= 755 && touchX >= 96 && touchX <= 384) {
+    // Khi đang thu gọn: Chạm vào vùng đáy (y >= 720) để bung mở Dock nhanh chóng và nhạy bén
+    if (touchY >= 720) {
       isCollapsed = false;
       setGlobalCollapsed(false);
       resetAutoHideTimer();
@@ -153,12 +152,8 @@ bool handleTouch(const MappedInputManager& mappedInput, Tab activeTab, bool& isC
 
 bool handleSwipe(MappedInputManager::SwipeDir swipe, bool& isCollapsed, int startX, int startY) {
   if (isCollapsed) {
-    // Khi đang thu gọn: Chỉ khi vuốt ngón tay lên từ vùng vạch chỉ báo sát đáy (startY >= 730) mới bung mở Dock.
-    // Vuốt ở giữa màn hình (để cuộn sách, đọc danh sách) tuyệt đối không được tự động hiện Dock.
-    if (swipe == MappedInputManager::SwipeDir::Up && startY >= 730) {
-      if (startX >= 0 && (startX < 100 || startX > 380)) {
-        return false;
-      }
+    // Khi đang thu gọn: Vuốt ngón tay lên từ vùng đáy (startY >= 680) để bung mở Dock
+    if (swipe == MappedInputManager::SwipeDir::Up && (startY < 0 || startY >= 680)) {
       isCollapsed = false;
       setGlobalCollapsed(false);
       resetAutoHideTimer();

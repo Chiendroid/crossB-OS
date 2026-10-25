@@ -380,7 +380,10 @@ bool MappedInputManager::wasLightPanelGesture() const {
 
 #if FREEINK_CAP_TOUCH
 bool MappedInputManager::wasPowerConfirmClick() const {
-  if (!gpio.hasTouch() || SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM) return false;
+  if (!gpio.hasTouch()) return false;
+  const bool isConfirmAction = (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM) ||
+                               (BoardConfig::isX4Pro() && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE);
+  if (!isConfirmAction) return false;
   // Wait out the X4 Pro's frontlight double-click window before treating its
   // first release as Confirm. With the shortcut disabled, and on other touch
   // boards, the release counts directly.
@@ -406,6 +409,8 @@ bool MappedInputManager::wasPressed(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
+  if (button == Button::Back && BoardConfig::ACTIVE.input.back < 0 && wasLongPressed(Button::Up, 450)) return true;
+  if (button == Button::Confirm && BoardConfig::ACTIVE.input.confirm < 0 && wasLongPressed(Button::Down, 450)) return true;
   return mapButton(button, &HalGPIO::wasPressed);
 }
 
@@ -420,6 +425,8 @@ bool MappedInputManager::wasReleased(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
+  if (button == Button::Back && BoardConfig::ACTIVE.input.back < 0 && wasLongPressed(Button::Up, 450)) return true;
+  if (button == Button::Confirm && BoardConfig::ACTIVE.input.confirm < 0 && wasLongPressed(Button::Down, 450)) return true;
   return mapButton(button, &HalGPIO::wasReleased);
 }
 

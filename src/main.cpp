@@ -864,6 +864,28 @@ void loop() {
     screenshotComboActive = false;
   }
 
+  // Emergency hardware chord: UP + DOWN pressed together (escape hatch)
+  static bool upDownComboActive = false;
+  if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+    if (!upDownComboActive) {
+      upDownComboActive = true;
+      if (activityManager.isReaderActivity()) {
+        activityManager.goHome();
+      } else if (activityManager.isForegroundHomeShown()) {
+        activityManager.goToSettings();
+      } else {
+        activityManager.popActivity();
+      }
+    }
+    return;
+  }
+  if (upDownComboActive) {
+    if (!gpio.isPressed(HalGPIO::BTN_UP) && !gpio.isPressed(HalGPIO::BTN_DOWN)) {
+      upDownComboActive = false;
+    }
+    return;
+  }
+
   // Consume the second X4 Pro power-button release so it does not also run a
   // configured short-power action after toggling the frontlight.
   if (handleX4ProFrontlightDoubleClick()) {
@@ -876,7 +898,9 @@ void loop() {
   // A single X4 Pro power click becomes Confirm only after the frontlight
   // double-click window expires without a second click.
   mappedInputManager.setPowerConfirmClickFrame(false);
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM && x4ProDoubleClickPwrLight) {
+  const bool x4ProPowerConfirm = (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM) ||
+                                 (BoardConfig::isX4Pro() && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE);
+  if (x4ProPowerConfirm && x4ProDoubleClickPwrLight) {
     if (lastX4ProPowerClickAt != 0 && millis() - lastX4ProPowerClickAt > X4PRO_POWER_DOUBLE_CLICK_MS) {
       lastX4ProPowerClickAt = 0;
       mappedInputManager.setPowerConfirmClickFrame(true);
