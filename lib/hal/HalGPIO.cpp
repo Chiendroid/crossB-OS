@@ -135,6 +135,22 @@ bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
 
 bool HalGPIO::rawInputActive() {
   if (inputMgr.isPowerButtonPhysicallyPressed()) return true;
+  if (inputMgr.wasAnyPressed()) return true;
+
+  if (BoardConfig::ACTIVE.inputStyle == BoardConfig::InputStyle::DigitalButtons) {
+    const auto& in = BoardConfig::ACTIVE.input;
+    for (int8_t pin : {in.up, in.down, in.left, in.right, in.back, in.confirm}) {
+      if (pin >= 0 && digitalRead(pin) == LOW) return true;
+    }
+  }
+
+  if (BoardConfig::ACTIVE.touch.irq >= 0) {
+    const bool activeLow = BoardConfig::ACTIVE.touch.irqActiveLow;
+    if (digitalRead(BoardConfig::ACTIVE.touch.irq) == (activeLow ? LOW : HIGH)) {
+      return true;
+    }
+  }
+
   InputManager::ButtonAdcSample g1{}, g2{};
   inputMgr.readButtonAdc(g1, g2);
   // The Xteink ladder idles at the ADC full-scale rail (~4095); every button band sits below 3900.
