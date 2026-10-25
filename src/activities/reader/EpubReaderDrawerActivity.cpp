@@ -2923,6 +2923,7 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
         mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, previousLabel, nextLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
+  renderer.waitRefreshComplete();
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   // Button menus repaint the sample on every navigation step. A grayscale pass
   // here would add a second panel refresh and flash the preview each time.

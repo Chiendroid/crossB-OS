@@ -336,6 +336,7 @@ int EpubReaderActivity::bookPercentFor(const ChapterPosition& position) const {
 }
 
 void EpubReaderActivity::openReaderMenu() {
+  renderer.waitRefreshComplete();
   pendingManualTurn = 0;
   const ChapterPosition position = chapterPosition();
   const int bookProgressPercent = bookPercentFor(position);
@@ -2184,6 +2185,7 @@ void EpubReaderActivity::rememberCurrentContentOffset() {
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
+  renderer.waitRefreshComplete();
   const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
   ImageBlock::clearRenderFailures();
@@ -2256,6 +2258,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   renderTimerNotification();
   const auto tBwRender = millis();
 
+  renderer.waitRefreshComplete();
   if (absoluteImageGrayscale) {
     const auto baseMode = cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
     if (!renderer.displayGrayscaleBase(HalDisplay::GrayscaleMode::Absolute, baseMode)) {

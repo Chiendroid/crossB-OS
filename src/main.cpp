@@ -1001,6 +1001,11 @@ void loop() {
   if (skipLoopDelay) {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
+  } else if (activityManager.isReaderActivity()) {
+    // Keep CPU at full performance during reading to prevent APB/SPI/PSRAM clock jitters
+    // and avoid FreeRTOS task contention between idle prewarming and reader loop.
+    powerManager.setPowerSaving(false);
+    delay(10);
   } else {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS && !pageturner::holdsCpu.load()) {
       // If we've been inactive for a while, increase the delay to save power
