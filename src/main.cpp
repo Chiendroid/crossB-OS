@@ -488,16 +488,11 @@ void setupDisplayAndFonts(bool seamless = false) {
 void setup() {
   BoardConfig::holdPowerRails();
 
-  const auto rawWakeupCause = esp_sleep_get_wakeup_cause();
-  const bool isRtcTimerWake = (rawWakeupCause == ESP_SLEEP_WAKEUP_TIMER);
-
 #ifdef ENABLE_SERIAL_LOG
 #ifdef CROSSPOINT_WAIT_FOR_USB_SERIAL
   // Development builds preserve reliable early CDC logs; release builds let
   // enumeration proceed asynchronously so users do not pay this startup cost.
-  if (!isRtcTimerWake) {
-    delay(250);
-  }
+  delay(250);
 #endif
   Serial.begin(115200);
 #if LOG_SERIAL_HAS_TX_TIMEOUT
@@ -523,15 +518,6 @@ void setup() {
   gpio.begin();
   powerManager.begin();
 
-  if (rawWakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
-    if (gpio.getWakeupReason() == HalGPIO::WakeupReason::PowerButton || gpio.verifyPowerButtonWakeup()) {
-      LOG_INF("MAIN", "Power button active during RTC timer wake, resuming normal boot");
-    } else {
-      powerManager.startDeepSleep(gpio);
-      return;
-    }
-  }
-
   // Board TX-power ceiling. It can only be set once WiFi has started, so it is
   // applied on every STA/AP start rather than at each place that brings WiFi up.
   if (BoardConfig::ACTIVE.wifiMaxTxPower != 0) {
@@ -544,13 +530,6 @@ void setup() {
   }
 
   const auto wakeupReason = gpio.getWakeupReason();
-  // Sample the wake hold now — a click wake is released within milliseconds of
-  // boot — but defer the sleep-or-boot decision until SETTINGS is loaded below:
-  // click-to-wake is a setting, and an X4 battery power-off cuts all power, so
-  // only SD state survives to the next boot.
-  // The Metalio boots after the button is released, so it skips the check.
-  const bool wakeHoldVerified = wakeupReason != HalGPIO::WakeupReason::PowerButton || BoardConfig::isMetalioEInk4() ||
-                                gpio.verifyPowerButtonWakeup();
 
   // X4 Pro and X4 Classic both map BTN_UP to GPIO0 — an ESP32-S3 boot strap — so
   // gate recovery on the non-strap Down key (GPIO7) to avoid a stuck-in-recovery loop.
@@ -635,13 +614,6 @@ void setup() {
 
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
-      // With Short Power Button Press = Sleep, a single click wakes on any
-      // device; otherwise the button must still be held (ghost-wake debounce).
-      if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
-        LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
-        Storage.prepareForDeepSleep();
-        powerManager.startDeepSleep(gpio);
-      }
       wakePowerReleasePending = true;
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:

@@ -743,24 +743,222 @@ void SleepActivity::renderDefaultSleepScreen(bool fast) const {
 
   renderer.clearScreen(0xFF);
 
-  constexpr int frameMargin = 28;
-  renderer.drawRoundedRect(frameMargin, frameMargin, pageWidth - frameMargin * 2, pageHeight - frameMargin * 2, 2, 16, true);
-
+  // 1. TOP STATUS BAR (Pin & Trạng thái đã khóa)
   const uint16_t percentage = powerManager.getBatteryPercentage();
   const unsigned clampedPin = percentage > 100 ? 100 : percentage;
-  char headerBuf[48];
-  snprintf(headerBuf, sizeof(headerBuf), "CROSSBASIC OS  ·  %u%%", clampedPin);
-  renderer.drawCenteredText(UI_10_FONT_ID, 64, headerBuf, true);
+  char headerBuf[32];
+  snprintf(headerBuf, sizeof(headerBuf), "ĐÃ KHÓA  ·  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 36, headerBuf, true);
 
-  constexpr int logoW = 120;
-  constexpr int logoH = 120;
-  const int logoX = (pageWidth - logoW) / 2;
-  constexpr int logoY = 240;
-  renderer.drawImage(Logo120, logoX, logoY, logoW, logoH);
+  // 2. NGÀY THÁNG VÀ LỊCH ÂM CĂN GIỮA NHẸ NHÀNG (THAY CHO ĐỒNG HỒ SỐ LỚN)
+  struct tm timeInfo{};
+  char dateBuf[48] = "";
+  char lunarBuf[64] = "";
 
-  renderer.drawCenteredText(UI_12_FONT_ID, 400, "CROSSBASIC OS", true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(UI_10_FONT_ID, 440, "Đang ở chế độ ngủ", true);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - 64, "Bấm nút nguồn để tiếp tục", true);
+  if (halClock.isAvailable() && halClock.localTime(timeInfo)) {
+    static const char* const kDayNamesVi[] = {"Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"};
+    const char* dayVi = (timeInfo.tm_wday >= 0 && timeInfo.tm_wday < 7) ? kDayNamesVi[timeInfo.tm_wday] : "";
+    snprintf(dateBuf, sizeof(dateBuf), "%s, %02d/%02d", dayVi, timeInfo.tm_mday, timeInfo.tm_mon + 1);
+
+    const int solarYear = timeInfo.tm_year + 1900;
+    const int solarMonth = timeInfo.tm_mon + 1;
+    const int solarDay = timeInfo.tm_mday;
+    LunarDate lunar = LunarCalendar::solarToLunar(solarDay, solarMonth, solarYear);
+    if (lunar.isLeap) {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d (Nhuận) · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    } else {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    }
+  }
+
+  if (dateBuf[0] != '\0') {
+    renderer.drawCenteredText(UI_10_FONT_ID, 68, dateBuf, true);
+  }
+  if (lunarBuf[0] != '\0') {
+    renderer.drawCenteredText(UI_10_FONT_ID, 94, lunarBuf, true);
+  }
+
+  // 3. THẺ 1: SÁCH ĐANG ĐỌC (Now Reading Card)
+  constexpr int cardX = 24;
+  const int cardW = pageWidth - cardX * 2;
+  constexpr int card1Y = 126;
+  constexpr int card1H = 190;
+
+  renderer.drawRoundedRect(cardX, card1Y, cardW, card1H, 1, 14, true);
+
+  const auto& books = RECENT_BOOKS.getBooks();
+  const RecentBook* book = nullptr;
+  if (!APP_STATE.openEpubPath.empty()) {
+    for (const auto& b : books) {
+      if (b.path == APP_STATE.openEpubPath) {
+        book = &b;
+        break;
+      }
+    }
+  }
+  if (!book && !books.empty()) {
+    book = &books.front();
+  }
+
+  // Bìa sách bên trái
+  constexpr int coverW = 100;
+  constexpr int coverH = 154;
+  constexpr int coverX = cardX + 16;
+  const int coverY = card1Y + 18;
+  renderer.drawRoundedRect(coverX, coverY, coverW, coverH, 1, 6, true);
+
+  bool drewCoverImage = false;
+  if (book != nullptr) {
+    const std::string coverPath = resolveRecentBookCoverPath(*book);
+    if (!coverPath.empty()) {
+      HalFile file;
+      if (Storage.openFileForRead("SLP", coverPath, file)) {
+        Bitmap bitmap(file);
+        if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+          renderer.drawBitmap(bitmap, coverX + 1, coverY + 1, coverW - 2, coverH - 2);
+          drewCoverImage = true;
+        }
+        file.close();
+      }
+    }
+
+    if (!drewCoverImage) {
+      for (int py = coverY + 4; py < coverY + coverH - 4; py += 3) {
+        renderer.drawLine(coverX + 6, py, coverX + coverW - 6, py, 1, true);
+      }
+    }
+
+    // Thông tin sách bên phải
+    constexpr int textX = coverX + coverW + 18;
+    const int maxTextW = cardW - (textX - cardX) - 16;
+
+    // Tên sách
+    const std::string titleStr = renderer.truncatedText(UI_12_FONT_ID, book->title.empty() ? book->path.c_str() : book->title.c_str(), maxTextW);
+    renderer.drawText(UI_12_FONT_ID, textX, card1Y + 28, titleStr.c_str(), true, EpdFontFamily::BOLD);
+
+    // Tác giả
+    const std::string authStr = renderer.truncatedText(UI_10_FONT_ID, book->author.empty() ? "CrossPoint" : book->author.c_str(), maxTextW);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 76, authStr.c_str(), true);
+
+    // Tiến độ đọc
+    const int progress = loadBookProgress(book->path);
+    const int readPct = progress >= 0 ? progress : 0;
+    char readStatsBuf[64];
+    if (readPct > 0) {
+      snprintf(readStatsBuf, sizeof(readStatsBuf), "Đã đọc: %d%%", readPct);
+    } else {
+      snprintf(readStatsBuf, sizeof(readStatsBuf), "Sách đang mở");
+    }
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 120, readStatsBuf, true);
+
+    // Thanh tiến độ
+    const int barY = card1Y + 152;
+    const int barEndX = cardX + cardW - 18;
+    renderer.drawLine(textX, barY, barEndX, barY, 1, true);
+    if (readPct > 0) {
+      const int filledW = std::clamp((barEndX - textX) * readPct / 100, 2, barEndX - textX);
+      renderer.drawLine(textX, barY, textX + filledW, barY, 2, true);
+    }
+  } else {
+    for (int py = coverY + 4; py < coverY + coverH - 4; py += 3) {
+      renderer.drawLine(coverX + 6, py, coverX + coverW - 6, py, 1, true);
+    }
+    constexpr int textX = coverX + coverW + 18;
+    renderer.drawText(UI_12_FONT_ID, textX, card1Y + 40, "CROSSBASIC OS", true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 86, "Không có sách đang đọc", true);
+    renderer.drawText(UI_10_FONT_ID, textX, card1Y + 128, "Mở thư viện để bắt đầu", true);
+  }
+
+  // 4. THẺ 2: THỐNG KÊ THÁNG NÀY & LƯỚI LỊCH HEATMAP
+  constexpr int card2Y = card1Y + card1H + 16; // 126 + 190 + 16 = 332
+  const int card2H = (pageHeight - 64) - card2Y - 16; // 800 - 64 - 332 - 16 = 388px
+
+  renderer.drawRoundedRect(cardX, card2Y, cardW, card2H, 1, 14, true);
+
+  const GlobalReadingStats globalStats = GlobalReadingStats::load();
+  ReadingStatsDateTime statsNow{};
+  getCurrentLocalReadingStatsDateTime(statsNow);
+
+  // Cột bên trái: Thống kê tổng quan
+  constexpr int statX = cardX + 20;
+  renderer.drawText(UI_10_FONT_ID, statX, card2Y + 22, "Tháng này", true);
+
+  // Tổng thời gian đọc số to
+  char durBuf[32] = "0m";
+  if (globalStats.totalReadingSeconds > 0) {
+    formatCompactReadingDuration(globalStats.totalReadingSeconds, durBuf, sizeof(durBuf));
+  }
+  renderer.drawText(NOTOSANS_18_FONT_ID, statX, card2Y + 54, durBuf, true, EpdFontFamily::BOLD);
+
+  // Số sách hoàn thành
+  char finishedBuf[32];
+  snprintf(finishedBuf, sizeof(finishedBuf), "%u cuốn xong", static_cast<unsigned>(globalStats.completedBooks));
+  renderer.drawText(UI_10_FONT_ID, statX, card2Y + 104, finishedBuf, true);
+
+  // Khung chuỗi ngày đọc bo góc đơn mảnh
+  const uint16_t streak = globalStats.currentReadingStreak(&statsNow.date);
+  const int badgeY = card2Y + 140;
+  char streakText[32];
+  snprintf(streakText, sizeof(streakText), "Chuỗi %u ngày", static_cast<unsigned>(streak > 0 ? streak : 1));
+  const int streakW = renderer.getTextWidth(UI_10_FONT_ID, streakText, EpdFontFamily::BOLD);
+  const int badgeW = streakW + 24;
+  constexpr int badgeH = 26;
+
+  renderer.drawRoundedRect(statX, badgeY, badgeW, badgeH, 1, 8, true);
+  const int textY = badgeY + (badgeH - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+  renderer.drawText(UI_10_FONT_ID, statX + 12, textY, streakText, true, EpdFontFamily::BOLD);
+
+  // Cột bên phải: Lưới Lịch Heatmap 7 cột
+  constexpr int cellSize = 16;
+  constexpr int cellGap = 5;
+  constexpr int gridCols = 7;
+  constexpr int gridW = gridCols * cellSize + (gridCols - 1) * cellGap; // 142px
+  const int gridX = cardX + cardW - gridW - 20;
+  const int gridY = card2Y + 26;
+
+  const uint16_t curYear = (timeInfo.tm_year > 0) ? (timeInfo.tm_year + 1900) : 2026;
+  const uint8_t curMonth = (timeInfo.tm_mon >= 0 && timeInfo.tm_mon < 12) ? (timeInfo.tm_mon + 1) : 10;
+  const uint8_t curDay = (timeInfo.tm_mday > 0 && timeInfo.tm_mday <= 31) ? timeInfo.tm_mday : 25;
+  const uint8_t totalDaysInMonth = daysInMonth(curYear, curMonth);
+
+  // Thứ của ngày mùng 1 (Quy ước: Thứ Hai = 0 ... Chủ Nhật = 6)
+  int firstWday = (timeInfo.tm_wday - ((curDay - 1) % 7) + 7) % 7;
+  int startCol = (firstWday + 6) % 7; // tm_wday: 0=CN, 1=T2 -> đổi thành T2=0, CN=6
+
+  for (uint8_t d = 1; d <= totalDaysInMonth; ++d) {
+    const int slot = startCol + (d - 1);
+    const int col = slot % 7;
+    const int row = slot / 7;
+
+    const int cx = gridX + col * (cellSize + cellGap);
+    const int cy = gridY + row * (cellSize + cellGap);
+
+    if (d <= curDay) {
+      bool hasRead = (d == curDay);
+      if (globalStats.readingHistoryAnchorDay > 0) {
+        const ReadingStatsDate checkDate{curYear, curMonth, d};
+        const uint32_t checkIndex = readingStatsDayIndex(checkDate);
+        if (checkIndex <= globalStats.readingHistoryAnchorDay) {
+          const uint32_t delta = globalStats.readingHistoryAnchorDay - checkIndex;
+          if (delta < READING_HISTORY_DAYS) {
+            hasRead = ((globalStats.readingHistoryBits[delta / 8] >> (delta % 8)) & 1) != 0;
+            if (d == curDay) hasRead = true;
+          }
+        }
+      }
+
+      if (hasRead) {
+        renderer.fillRoundedRect(cx, cy, cellSize, cellSize, 2, Color::Black);
+      } else {
+        renderer.drawRoundedRect(cx, cy, cellSize, cellSize, 1, 2, true);
+      }
+    } else {
+      drawDashedRoundedRect(renderer, cx, cy, cellSize, cellSize, 2);
+    }
+  }
+
+  // 5. FOOTER DƯỚI CÙNG
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - 44, "Bấm nút nguồn để tiếp tục", true);
 
   // Đảo màu thành nền tối tuyền nếu người dùng chọn chế độ Màn hình Tối (DARK)
   if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK) {

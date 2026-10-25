@@ -2037,10 +2037,15 @@ void EpubReaderDrawerActivity::notifyDictionaryFontChanged() {
 void EpubReaderDrawerActivity::selectEnumOption(const int index) {
   if (index < 0 || index >= static_cast<int>(enumOptionValues.size())) return;
   const uint8_t value = enumOptionValues[static_cast<size_t>(index)];
-  const bool previewsBeforeSelecting = enumOptionRow == RowId::Alignment;
+  const bool previewsBeforeSelecting = enumOptionRow == RowId::FontSize || enumOptionRow == RowId::Alignment;
   if (previewsBeforeSelecting && previewedEnumOptionIndex != index) {
     previewedEnumOptionIndex = static_cast<int16_t>(index);
-    draft.paragraphAlignment = value;
+    if (enumOptionRow == RowId::FontSize) {
+      fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
+      draft.readerFontPointSize = value;
+    } else {
+      draft.paragraphAlignment = value;
+    }
     markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
     requestUpdate();
     return;
@@ -2601,8 +2606,8 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
   const bool fontLoaded =
       previewSettings.sdFontFamilyName[0] == '\0' ||
       sdFontSystem.resolveFontId(previewSettings.sdFontFamilyName.data(), previewSettings.readerFontPointSize) != 0;
+  applySettings(liveSettings);
   if (!fontLoaded && ownedPreviewModel) {
-    applySettings(liveSettings);
     LOG_ERR("ERDM", "Could not load selected SD font for button preview");
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
     state.pendingFontIndex = -1;
@@ -2612,18 +2617,13 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     return false;
   }
   if (auto* fontCacheManager = renderer.getFontCacheManager()) {
-    fontCacheManager->clearCache();
     prewarmScope.emplace(*fontCacheManager);
     renderPreviewContents(previewSettings,
                           previewFontId);  // Scan the page text before loading the selected font's glyphs.
     prewarmScope->endScanAndPrewarm();
-    if (releasePreviewIfBelowReserve()) {
-      applySettings(liveSettings);
-      return false;
-    }
+    if (releasePreviewIfBelowReserve()) return false;
   }
   renderPreviewContents(previewSettings, previewFontId);
-  applySettings(liveSettings);
   if (releasePreviewIfBelowReserve()) return false;
   lastGoodPreviewSettings = draft;
   previewUnavailable = false;

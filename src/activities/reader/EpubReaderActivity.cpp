@@ -1791,24 +1791,15 @@ void EpubReaderActivity::renderBook() {
               epub->getCumulativeSpineItemSize(currentSpineIndex) -
               (currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0);
           const bool willInflate = !section->hasHtmlCache();
-          const bool isTextRebuild = textSettingsChangedRebuild;
-          textSettingsChangedRebuild = false;
-          bool showPopup;
-          if (isTextRebuild) {
-            showPopup = true;
-          } else if (anchorJump) {
-            showPopup = !section->findAnchor(pendingAnchor).has_value() && spineBytes > BUILD_POPUP_BYTE_THRESHOLD;
-          } else {
-            const bool targetAvailable = target < static_cast<int>(section->pageCount);
-            showPopup = !targetAvailable && ((spineBytes > BUILD_POPUP_BYTE_THRESHOLD && willInflate) ||
-                                             target > BUILD_POPUP_PAGE_THRESHOLD);
-          }
+          const bool targetAvailable = target < static_cast<int>(section->pageCount);
+          const bool showPopup =
+              anchorJump
+                  ? !section->findAnchor(pendingAnchor).has_value() && spineBytes > BUILD_POPUP_BYTE_THRESHOLD
+                  : !targetAvailable &&
+                        ((spineBytes > BUILD_POPUP_BYTE_THRESHOLD && willInflate) || target > BUILD_POPUP_PAGE_THRESHOLD);
           if (showPopup) {
             GUI.drawPopup(renderer, tr(STR_INDEXING));
             pagesUntilFullRefresh = 1;
-            if (isTextRebuild) {
-              delay(20);
-            }
           }
           buildPopupPending = !showPopup;
           // Section (re)builds are the heap-hungriest path (per-word
@@ -1857,7 +1848,6 @@ void EpubReaderActivity::renderBook() {
               showBuildError();
               return;
             }
-            yield();
           }
           buildPopupPending = false;
         }
@@ -1927,9 +1917,7 @@ void EpubReaderActivity::renderBook() {
         showBuildError();
         return;
       }
-      yield();
     }
-    yield();
   }
   if (section->isBuilding()) {
     while (!section->isBuildComplete() && section->currentPage >= static_cast<int>(section->pageCount)) {
@@ -1939,7 +1927,6 @@ void EpubReaderActivity::renderBook() {
         showBuildError();
         return;
       }
-      yield();
     }
   }
 
@@ -3518,19 +3505,14 @@ void EpubReaderActivity::applyReaderTextSettings() {
     }
     // Release the old parser and page table before settings serialization needs heap.
     section.reset();  // force re-pagination with the new settings
-    progressSavePending = false;
-
-    // Release old font caches so we free up heap/PSRAM before loading the new font size
-    if (auto* fcm = renderer.getFontCacheManager()) {
-      fcm->releaseSdFontCaches();
-    }
-
-    // (Re)load or unload the selected SD-card font for the current family/size.
-    // Crucial: Must be held within RenderLock so renderTask cannot access half-loaded/unloaded fonts!
-    sdFontSystem.ensureLoaded(renderer);
-    textSettingsChangedRebuild = true;
   }
   SETTINGS.saveToFile();
+  // (Re)load or unload the selected SD-card font for the current family/size.
+  // The reader otherwise only loads SD fonts on book open, so without this an
+  // in-reader font change wouldn't take effect until re-opening the book.
+  // Locked because the render task can load or unload SD font variants too.
+  RenderLock lock;
+  sdFontSystem.ensureLoaded(renderer);
 }
 
 // The More panel carries everything the classic list menu offers except the
