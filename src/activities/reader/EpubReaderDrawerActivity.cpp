@@ -2037,15 +2037,10 @@ void EpubReaderDrawerActivity::notifyDictionaryFontChanged() {
 void EpubReaderDrawerActivity::selectEnumOption(const int index) {
   if (index < 0 || index >= static_cast<int>(enumOptionValues.size())) return;
   const uint8_t value = enumOptionValues[static_cast<size_t>(index)];
-  const bool previewsBeforeSelecting = enumOptionRow == RowId::FontSize || enumOptionRow == RowId::Alignment;
+  const bool previewsBeforeSelecting = enumOptionRow == RowId::Alignment;
   if (previewsBeforeSelecting && previewedEnumOptionIndex != index) {
     previewedEnumOptionIndex = static_cast<int16_t>(index);
-    if (enumOptionRow == RowId::FontSize) {
-      fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
-      draft.readerFontPointSize = value;
-    } else {
-      draft.paragraphAlignment = value;
-    }
+    draft.paragraphAlignment = value;
     markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
     requestUpdate();
     return;

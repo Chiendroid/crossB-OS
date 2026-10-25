@@ -1791,8 +1791,12 @@ void EpubReaderActivity::renderBook() {
               epub->getCumulativeSpineItemSize(currentSpineIndex) -
               (currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0);
           const bool willInflate = !section->hasHtmlCache();
+          const bool isTextRebuild = textSettingsChangedRebuild;
+          textSettingsChangedRebuild = false;
           bool showPopup;
-          if (anchorJump) {
+          if (isTextRebuild) {
+            showPopup = true;
+          } else if (anchorJump) {
             showPopup = !section->findAnchor(pendingAnchor).has_value() && spineBytes > BUILD_POPUP_BYTE_THRESHOLD;
           } else {
             const bool targetAvailable = target < static_cast<int>(section->pageCount);
@@ -1802,6 +1806,9 @@ void EpubReaderActivity::renderBook() {
           if (showPopup) {
             GUI.drawPopup(renderer, tr(STR_INDEXING));
             pagesUntilFullRefresh = 1;
+            if (isTextRebuild) {
+              delay(20);
+            }
           }
           buildPopupPending = !showPopup;
           // Section (re)builds are the heap-hungriest path (per-word
@@ -1850,6 +1857,7 @@ void EpubReaderActivity::renderBook() {
               showBuildError();
               return;
             }
+            yield();
           }
           buildPopupPending = false;
         }
@@ -1919,7 +1927,9 @@ void EpubReaderActivity::renderBook() {
         showBuildError();
         return;
       }
+      yield();
     }
+    yield();
   }
   if (section->isBuilding()) {
     while (!section->isBuildComplete() && section->currentPage >= static_cast<int>(section->pageCount)) {
@@ -1929,6 +1939,7 @@ void EpubReaderActivity::renderBook() {
         showBuildError();
         return;
       }
+      yield();
     }
   }
 
@@ -3517,6 +3528,7 @@ void EpubReaderActivity::applyReaderTextSettings() {
     // (Re)load or unload the selected SD-card font for the current family/size.
     // Crucial: Must be held within RenderLock so renderTask cannot access half-loaded/unloaded fonts!
     sdFontSystem.ensureLoaded(renderer);
+    textSettingsChangedRebuild = true;
   }
   SETTINGS.saveToFile();
 }

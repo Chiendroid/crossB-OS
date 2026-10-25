@@ -124,10 +124,6 @@ EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
 RTC_NOINIT_ATTR uint32_t silentRebootPayload;
-RTC_DATA_ATTR bool rtcSleepClockConfigured = false;
-RTC_DATA_ATTR uint8_t rtcSleepScreenMode = 0;
-RTC_DATA_ATTR uint8_t rtcSleepClockFormat = 0;
-RTC_DATA_ATTR uint8_t rtcSleepLanguage = 0;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
@@ -443,57 +439,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   Storage.prepareForDeepSleep();
 
-  // Phân định cơ chế ngủ: Đồng hồ dùng Light Sleep (giữ RAM, không reboot, cập nhật mỗi phút)
-  // Các màn hình khác dùng Deep Sleep vĩnh viễn (siêu tiết kiệm pin, chỉ thức dậy khi bấm nút nguồn)
-  const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
-                             SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
-
-  if (isClockSleep) {
-    LOG_INF("MAIN", "Bắt đầu chế độ ngủ Đồng hồ (Light Sleep giữ RAM, không reboot, cập nhật mỗi phút)");
-    freeink::PowerManager::waitForPowerButtonRelease();
-
-    while (true) {
-      const uint16_t batteryPct = powerManager.getBatteryPercentage();
-      if (batteryPct > 0 && batteryPct <= 10) {
-        LOG_INF("MAIN", "Pin yếu (%u%%), chuyển từ Light Sleep sang Deep Sleep để bảo vệ pin", batteryPct);
-        powerManager.startDeepSleep(gpio);
-        return;
-      }
-
-      struct tm tInfo{};
-      int curSec = 0;
-      if (halClock.localTime(tInfo)) {
-        curSec = tInfo.tm_sec;
-      }
-      uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
-      if (sleepSec < 2) sleepSec += 60;
-
-      if (batteryPct > 0 && batteryPct <= 20) {
-        sleepSec = std::max(sleepSec, 300ULL);
-      }
-
-      esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
-      freeink::PowerManager::armPowerButtonWakeup();
-
-      esp_light_sleep_start();
-
-      const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-      if (cause != ESP_SLEEP_WAKEUP_TIMER || gpio.verifyPowerButtonWakeup()) {
-        LOG_INF("MAIN", "Nút nguồn được nhấn, thoát khỏi chế độ ngủ đồng hồ");
-        esp_restart();
-      }
-
-      // Thức dậy sau timer từ Light Sleep:
-      // Toàn bộ RAM và Framebuffer (chứa 2 thẻ sách và lịch) còn nguyên vẹn 100%!
-      SleepActivity sleepActivity(renderer, mappedInputManager);
-      sleepActivity.renderClockSleepScreenPartial();
-      display.deepSleep();
-    }
-  }
-
-  // NGOÀI ĐỒNG HỒ: DÙNG DEEP SLEEP (TIẾT KIỆM PIN TỐI ĐA, KHÔNG TIMER WAKE)
-  rtcSleepClockConfigured = false;
-  LOG_DBG("MAIN", "Entering deep sleep (non-clock sleep screen)");
+  LOG_DBG("MAIN", "Entering deep sleep");
   powerManager.startDeepSleep(gpio);
 }
 

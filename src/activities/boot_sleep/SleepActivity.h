@@ -13,8 +13,6 @@ class SleepActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
 
-  void renderClockSleepScreen(bool fast = false) const;
-  void renderClockSleepScreenPartial() const;
 
  private:
   void renderDefaultSleepScreen(bool fast = false) const;
