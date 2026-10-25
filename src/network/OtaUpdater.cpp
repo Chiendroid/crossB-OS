@@ -138,11 +138,11 @@ std::string OtaUpdater::sanitizeChangelog(const char* raw) {
 }
 
 const char* OtaUpdater::getDefaultCurrentChangelog() {
-  return "- Nâng cấp hệ thống lên phiên bản 0.2.2-dev\n"
-         "- Tối ưu màn hình ngủ: cập nhật đồng hồ và pin bằng làm mới cục bộ (không giật màn hình)\n"
-         "- Tiết kiệm điện năng vượt trội khi hiển thị đồng hồ chế độ ngủ\n"
-         "- Sửa lỗi nút bấm và thông báo tàng hình trên màn hình Cập nhật OTA\n"
-         "- Toàn bộ giao diện và nhật ký cập nhật hỗ trợ tiếng Việt có dấu chuẩn xác";
+  return "- Nâng cấp hệ thống lên phiên bản 0.2.3-dev\n"
+         "- Tối ưu pin đột phá: Không bật thẻ SD và hạ xung CPU 80MHz khi cập nhật đồng hồ ngủ\n"
+         "- Tự động bảo vệ pin: Giãn chu kỳ khi pin yếu và tắt timer khi pin dưới 10%\n"
+         "- Khắc phục triệt để lỗi không tải được nhật ký thay đổi của bản cập nhật mới\n"
+         "- Mở rộng bộ đệm JSON và ngăn chặn mất nội dung mô tả phiên bản từ máy chủ";
 }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
@@ -214,7 +214,11 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     releaseNotes = sanitizeChangelog(body);
   }
   if (releaseNotes.empty()) {
-    releaseNotes = getDefaultCurrentChangelog();
+    if (latestVersion == CROSSPOINT_VERSION) {
+      releaseNotes = getDefaultCurrentChangelog();
+    } else {
+      releaseNotes = "- Bản cập nhật mới không kèm nội dung nhật ký chi tiết.";
+    }
   }
   updateAvailable = true;
 

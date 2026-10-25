@@ -11,6 +11,25 @@ void safeCopy(char* dst, size_t dstSize, const char* src, size_t srcLen) {
   dst[n] = '\0';
 }
 
+void appendUtf8(char* buf, size_t& len, size_t maxLen, uint16_t cp) {
+  if (cp < 0x80) {
+    if (len + 1 < maxLen) {
+      buf[len++] = static_cast<char>(cp);
+    }
+  } else if (cp < 0x800) {
+    if (len + 2 < maxLen) {
+      buf[len++] = static_cast<char>(0xC0 | (cp >> 6));
+      buf[len++] = static_cast<char>(0x80 | (cp & 0x3F));
+    }
+  } else {
+    if (len + 3 < maxLen) {
+      buf[len++] = static_cast<char>(0xE0 | (cp >> 12));
+      buf[len++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+      buf[len++] = static_cast<char>(0x80 | (cp & 0x3F));
+    }
+  }
+}
+
 }  // namespace
 
 ReleaseJsonParser::ReleaseJsonParser()
@@ -40,9 +59,148 @@ void ReleaseJsonParser::reset() {
   currentAssetName[0] = '\0';
   currentAssetUrl[0] = '\0';
   currentAssetSize = 0;
+
+  bodyState = BodyState::SEEK_KEY;
+  keyMatchIndex = 0;
+  bodyLen = 0;
+  unicodeHex = 0;
+  unicodeDigits = 0;
 }
 
-void ReleaseJsonParser::feed(const char* data, size_t len) { parser.feed(data, len); }
+void ReleaseJsonParser::feed(const char* data, size_t len) {
+  if (bodyState != BodyState::DONE) {
+    const char KEY_PATTERN[] = "\"body\"";
+    for (size_t i = 0; i < len; i++) {
+      char c = data[i];
+      switch (bodyState) {
+        case BodyState::SEEK_KEY:
+          if (c == KEY_PATTERN[keyMatchIndex]) {
+            keyMatchIndex++;
+            if (keyMatchIndex == sizeof(KEY_PATTERN) - 1) {
+              bodyState = BodyState::SEEK_COLON;
+              keyMatchIndex = 0;
+            }
+          } else {
+            keyMatchIndex = (c == KEY_PATTERN[0]) ? 1 : 0;
+          }
+          break;
+
+        case BodyState::SEEK_COLON:
+          if (c == ':') {
+            bodyState = BodyState::SEEK_QUOTE;
+          } else if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+            bodyState = BodyState::SEEK_KEY;
+          }
+          break;
+
+        case BodyState::SEEK_QUOTE:
+          if (c == '"') {
+            bodyState = BodyState::IN_STRING;
+            bodyLen = 0;
+            releaseBody[0] = '\0';
+          } else if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+            bodyState = BodyState::DONE;
+          }
+          break;
+
+        case BodyState::IN_STRING:
+          if (c == '\\') {
+            bodyState = BodyState::ESCAPE;
+          } else if (c == '"') {
+            releaseBody[bodyLen] = '\0';
+            bodyState = BodyState::DONE;
+          } else {
+            if (bodyLen + 1 < sizeof(releaseBody)) {
+              releaseBody[bodyLen++] = c;
+              releaseBody[bodyLen] = '\0';
+            }
+          }
+          break;
+
+        case BodyState::ESCAPE:
+          switch (c) {
+            case '"':
+            case '\\':
+            case '/':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = c;
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 'b':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = '\b';
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 'f':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = '\f';
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 'n':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = '\n';
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 'r':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = '\r';
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 't':
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = '\t';
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+            case 'u':
+              bodyState = BodyState::UNICODE_ESCAPE;
+              unicodeHex = 0;
+              unicodeDigits = 0;
+              break;
+            default:
+              if (bodyLen + 1 < sizeof(releaseBody)) {
+                releaseBody[bodyLen++] = c;
+                releaseBody[bodyLen] = '\0';
+              }
+              bodyState = BodyState::IN_STRING;
+              break;
+          }
+          break;
+
+        case BodyState::UNICODE_ESCAPE: {
+          uint8_t val = 0;
+          if (c >= '0' && c <= '9') val = c - '0';
+          else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
+          else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
+          unicodeHex = (unicodeHex << 4) | val;
+          unicodeDigits++;
+          if (unicodeDigits == 4) {
+            appendUtf8(releaseBody, bodyLen, sizeof(releaseBody), unicodeHex);
+            releaseBody[bodyLen] = '\0';
+            bodyState = BodyState::IN_STRING;
+          }
+          break;
+        }
+
+        case BodyState::DONE:
+          break;
+      }
+    }
+  }
+
+  parser.feed(data, len);
+}
 
 bool ReleaseJsonParser::foundTag() const { return tagFound; }
 bool ReleaseJsonParser::foundFirmware() const { return firmwareFound; }
@@ -114,7 +272,9 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
     case LastKey::BODY: {
       const uint8_t targetDepth = self->inRootArray ? 2 : 1;
       if (self->position == Position::TOP_LEVEL && self->depth == targetDepth) {
-        safeCopy(self->releaseBody, sizeof(self->releaseBody), value, len);
+        if (self->releaseBody[0] == '\0') {
+          safeCopy(self->releaseBody, sizeof(self->releaseBody), value, len);
+        }
       }
       break;
     }

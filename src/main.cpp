@@ -123,6 +123,10 @@ EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
 RTC_NOINIT_ATTR uint32_t silentRebootPayload;
+RTC_DATA_ATTR bool rtcSleepClockConfigured = false;
+RTC_DATA_ATTR uint8_t rtcSleepScreenMode = 0;
+RTC_DATA_ATTR uint8_t rtcSleepClockFormat = 0;
+RTC_DATA_ATTR uint8_t rtcSleepLanguage = 0;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
@@ -441,21 +445,50 @@ void enterDeepSleep(bool fromTimeout = false) {
   // Chỉ khi người dùng chọn màn hình ngủ là Đồng hồ tối hoặc Đồng hồ sáng thì mới bật RTC timer thức dậy mỗi phút
   const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
                              SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
+  rtcSleepClockConfigured = isClockSleep;
+  rtcSleepScreenMode = static_cast<uint8_t>(SETTINGS.sleepScreen);
+  rtcSleepClockFormat = SETTINGS.clockFormat;
+  rtcSleepLanguage = SETTINGS.language;
+
   if (isClockSleep) {
-    struct tm tInfo{};
-    int curSec = 0;
-    if (halClock.localTime(tInfo)) {
-      curSec = tInfo.tm_sec;
+    const uint16_t batteryPct = powerManager.getBatteryPercentage();
+    if (batteryPct > 10) {
+      struct tm tInfo{};
+      int curSec = 0;
+      if (halClock.localTime(tInfo)) {
+        curSec = tInfo.tm_sec;
+      }
+      uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
+      if (sleepSec < 5) sleepSec += 60;
+      if (batteryPct <= 20) {
+        sleepSec = std::max(sleepSec, 300ULL);
+      }
+      LOG_INF("MAIN", "Arming RTC timer wake for sleep clock: %llu s (battery %u%%)", sleepSec, batteryPct);
+      esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
+    } else {
+      LOG_INF("MAIN", "Battery critical (%u%%), timer wake disabled to preserve battery", batteryPct);
     }
-    uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
-    if (sleepSec < 5) sleepSec += 60;
-    LOG_INF("MAIN", "Arming RTC 1-minute timer wake for sleep clock: %llu s", sleepSec);
-    esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
   }
 
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
+}
+
+void setupDisplayForSleepClock() {
+#if !FREEINK_MCU_C3
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    if (freeink::applyXteinkDisplayController()) {
+      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    }
+  }
+#endif
+
+  display.begin(/*seamless=*/true);
+  renderer.begin();
+  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -502,11 +535,16 @@ void setupDisplayAndFonts(bool seamless = false) {
 void setup() {
   BoardConfig::holdPowerRails();
 
+  const auto rawWakeupCause = esp_sleep_get_wakeup_cause();
+  const bool isRtcTimerWake = (rawWakeupCause == ESP_SLEEP_WAKEUP_TIMER);
+
 #ifdef ENABLE_SERIAL_LOG
 #ifdef CROSSPOINT_WAIT_FOR_USB_SERIAL
   // Development builds preserve reliable early CDC logs; release builds let
   // enumeration proceed asynchronously so users do not pay this startup cost.
-  delay(250);
+  if (!isRtcTimerWake) {
+    delay(250);
+  }
 #endif
   Serial.begin(115200);
 #if LOG_SERIAL_HAS_TX_TIMEOUT
@@ -532,19 +570,27 @@ void setup() {
   gpio.begin();
   powerManager.begin();
 
-  const auto rawWakeupCause = esp_sleep_get_wakeup_cause();
   if (rawWakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
-    LOG_INF("MAIN", "Woke from RTC timer for sleep screen clock refresh");
-    halClock.begin();
-    if (Storage.begin()) {
-      SETTINGS.loadFromFile();
-      timezones::applyToClock();
-      const bool isClockSleep = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK ||
-                                 SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT);
-      if (isClockSleep) {
-        if (gpio.getWakeupReason() == HalGPIO::WakeupReason::PowerButton || gpio.verifyPowerButtonWakeup()) {
-          LOG_INF("MAIN", "Power button active during RTC timer wake, resuming normal boot");
-        } else {
+    if (gpio.getWakeupReason() == HalGPIO::WakeupReason::PowerButton || gpio.verifyPowerButtonWakeup()) {
+      LOG_INF("MAIN", "Power button active during RTC timer wake, resuming normal boot");
+    } else {
+      halClock.begin();
+
+      const uint16_t batteryPct = powerManager.getBatteryPercentage();
+      if (batteryPct > 0 && batteryPct <= 10) {
+        LOG_INF("MAIN", "Battery critical (%u%%), entering deep sleep without RTC timer", batteryPct);
+        powerManager.startDeepSleep(gpio);
+        return;
+      }
+
+      struct tm tInfo{};
+      const bool hasTime = halClock.localTime(tInfo);
+      const bool isMidnight = (hasTime && tInfo.tm_hour == 0 && tInfo.tm_min == 0);
+
+      if (isMidnight || !rtcSleepClockConfigured) {
+        if (Storage.begin()) {
+          SETTINGS.loadFromFile();
+          timezones::applyToClock();
           APP_STATE.loadFromFile();
           RECENT_BOOKS.loadFromFile();
           I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -552,31 +598,38 @@ void setup() {
 
           setupDisplayAndFonts(/*seamless=*/true);
           SleepActivity sleepActivity(renderer, mappedInputManager);
-          struct tm tCheck{};
-          const bool isMidnight = (halClock.localTime(tCheck) && tCheck.tm_hour == 0 && tCheck.tm_min == 0);
-          if (isMidnight) {
-            sleepActivity.renderClockSleepScreen(/*fast=*/false);
-          } else {
-            sleepActivity.renderClockSleepScreenPartial();
-          }
+          sleepActivity.renderClockSleepScreen(/*fast=*/false);
           display.deepSleep();
           Storage.prepareForDeepSleep();
-
-          if (gpio.verifyPowerButtonWakeup()) {
-            LOG_INF("MAIN", "Power button pressed during sleep render, waking up");
-          } else {
-            struct tm tInfo{};
-            int curSec = 0;
-            if (halClock.localTime(tInfo)) {
-              curSec = tInfo.tm_sec;
-            }
-            uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
-            if (sleepSec < 5) sleepSec += 60;
-            esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
-            powerManager.startDeepSleep(gpio);
-            return;
-          }
         }
+      } else {
+        // Chế độ siêu tiết kiệm pin: KHÔNG BẬT THẺ SD, hạ xung CPU xuống 80MHz
+        setCpuFrequencyMhz(80);
+
+        SETTINGS.sleepScreen = static_cast<CrossPointSettings::SLEEP_SCREEN_MODE>(rtcSleepScreenMode);
+        SETTINGS.clockFormat = rtcSleepClockFormat;
+        SETTINGS.language = rtcSleepLanguage;
+
+        setupDisplayForSleepClock();
+        SleepActivity sleepActivity(renderer, mappedInputManager);
+        sleepActivity.renderClockSleepScreenPartial();
+        display.deepSleep();
+      }
+
+      if (gpio.verifyPowerButtonWakeup()) {
+        LOG_INF("MAIN", "Power button pressed during sleep render, waking up");
+      } else {
+        int curSec = hasTime ? tInfo.tm_sec : 0;
+        uint64_t sleepSec = (curSec < 60) ? (60 - curSec) : 60;
+        if (sleepSec < 5) sleepSec += 60;
+
+        if (batteryPct > 0 && batteryPct <= 20) {
+          sleepSec = std::max(sleepSec, 300ULL);
+        }
+
+        esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
+        powerManager.startDeepSleep(gpio);
+        return;
       }
     }
   }

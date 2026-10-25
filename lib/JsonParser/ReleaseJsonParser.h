@@ -64,7 +64,7 @@ class ReleaseJsonParser {
 
   char tagName[32];
   char firmwareUrl[512];
-  char releaseBody[1536];
+  char releaseBody[4096];
   size_t firmwareSize;
   bool tagFound;
   bool firmwareFound;
@@ -74,4 +74,19 @@ class ReleaseJsonParser {
   size_t currentAssetSize;
 
   char firmwareAssetName[48];
+
+  enum class BodyState : uint8_t {
+    SEEK_KEY,
+    SEEK_COLON,
+    SEEK_QUOTE,
+    IN_STRING,
+    ESCAPE,
+    UNICODE_ESCAPE,
+    DONE
+  };
+  BodyState bodyState = BodyState::SEEK_KEY;
+  uint8_t keyMatchIndex = 0;
+  size_t bodyLen = 0;
+  uint16_t unicodeHex = 0;
+  uint8_t unicodeDigits = 0;
 };
