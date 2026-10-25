@@ -552,7 +552,13 @@ void setup() {
 
           setupDisplayAndFonts(/*seamless=*/true);
           SleepActivity sleepActivity(renderer, mappedInputManager);
-          sleepActivity.renderClockSleepScreen(/*fast=*/true);
+          struct tm tCheck{};
+          const bool isMidnight = (halClock.localTime(tCheck) && tCheck.tm_hour == 0 && tCheck.tm_min == 0);
+          if (isMidnight) {
+            sleepActivity.renderClockSleepScreen(/*fast=*/false);
+          } else {
+            sleepActivity.renderClockSleepScreenPartial();
+          }
           display.deepSleep();
           Storage.prepareForDeepSleep();
 

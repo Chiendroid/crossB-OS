@@ -966,6 +966,62 @@ void SleepActivity::renderDefaultSleepScreen(bool fast) const {
   renderer.displayBuffer(fast ? HalDisplay::FAST_REFRESH : kSleepClean);
 }
 
+void SleepActivity::renderClockSleepScreenPartial() const {
+  const auto pageWidth = renderer.getScreenWidth();
+  constexpr int headerH = 224;
+
+  const bool isDark = (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK);
+  const bool textColor = !isDark;
+
+  // Xóa vùng header (trắng hoặc đen tùy chế độ)
+  renderer.fillRect(0, 0, pageWidth, headerH, isDark);
+
+  // 1. TOP STATUS BAR (Pin & trạng thái)
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[32];
+  snprintf(headerBuf, sizeof(headerBuf), "ĐÃ KHÓA  \u00b7  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 36, headerBuf, textColor);
+
+  // 2. ĐỒNG HỒ SỐ LỚN VÀ NGÀY THÁNG, LỊCH ÂM
+  struct tm timeInfo{};
+  char timeBuf[16] = "07:34";
+  char dateBuf[48] = "Thứ Năm, 22/10";
+  char lunarBuf[64] = "";
+
+  if (halClock.isAvailable() && halClock.localTime(timeInfo)) {
+    halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
+
+    static const char* const kDayNamesVi[] = {"Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"};
+    const char* dayVi = (timeInfo.tm_wday >= 0 && timeInfo.tm_wday < 7) ? kDayNamesVi[timeInfo.tm_wday] : "";
+    snprintf(dateBuf, sizeof(dateBuf), "%s, %02d/%02d", dayVi, timeInfo.tm_mday, timeInfo.tm_mon + 1);
+
+    const int solarYear = timeInfo.tm_year + 1900;
+    const int solarMonth = timeInfo.tm_mon + 1;
+    const int solarDay = timeInfo.tm_mday;
+    LunarDate lunar = LunarCalendar::solarToLunar(solarDay, solarMonth, solarYear);
+    if (lunar.isLeap) {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d (Nhuận) · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    } else {
+      snprintf(lunarBuf, sizeof(lunarBuf), "Âm lịch: %d/%d · %s", lunar.day, lunar.month, lunar.yearCanChi.c_str());
+    }
+  }
+
+  // Đồng hồ số lớn Ubuntu TrueType native căn giữa (baselineY = 140)
+  clock_font::drawClock(renderer, pageWidth / 2, 140, timeBuf, textColor);
+
+  // Ngày tháng căn giữa
+  renderer.drawCenteredText(UI_10_FONT_ID, 162, dateBuf, textColor);
+
+  // Lịch Âm căn giữa
+  if (lunarBuf[0] != '\0') {
+    renderer.drawCenteredText(UI_10_FONT_ID, 188, lunarBuf, textColor);
+  }
+
+  // Cập nhật cửa sổ cục bộ (Windowed partial refresh)
+  renderer.displayWindow(0, 0, pageWidth, headerH);
+}
+
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();

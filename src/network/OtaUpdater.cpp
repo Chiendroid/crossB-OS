@@ -138,10 +138,11 @@ std::string OtaUpdater::sanitizeChangelog(const char* raw) {
 }
 
 const char* OtaUpdater::getDefaultCurrentChangelog() {
-  return "- Nang cap he thong len phien ban 0.2.1-dev\n"
-         "- Sua loi RTC lam moi man hinh ngu bi mat thong tin sach dang doc\n"
-         "- Toi uu trinh duyet web va khoi phuc CrossInk Drawer Menu\n"
-         "- Cai tien giao dien cap nhat OTA va bo nho dem bia sach";
+  return "- Nâng cấp hệ thống lên phiên bản 0.2.2-dev\n"
+         "- Tối ưu màn hình ngủ: cập nhật đồng hồ và pin bằng làm mới cục bộ (không giật màn hình)\n"
+         "- Tiết kiệm điện năng vượt trội khi hiển thị đồng hồ chế độ ngủ\n"
+         "- Sửa lỗi nút bấm và thông báo tàng hình trên màn hình Cập nhật OTA\n"
+         "- Toàn bộ giao diện và nhật ký cập nhật hỗ trợ tiếng Việt có dấu chuẩn xác";
 }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {

@@ -1779,6 +1779,13 @@ void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const 
 
 void GfxRenderer::waitRefreshComplete() const { display.waitRefreshComplete(); }
 
+void GfxRenderer::displayWindow(int x, int y, int width, int height, bool turnOffScreen) const {
+  if (width <= 0 || height <= 0) return;
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, width, height, panelWidth, panelHeight);
+  if (!mem.valid) return;
+  display.displayWindow(mem.x, mem.y, mem.w, mem.h, turnOffScreen);
+}
+
 bool GfxRenderer::supportsAsyncRefresh() const { return !fadingFix && display.supportsAsyncRefresh(); }
 
 HalDisplay::GrayscaleCapabilities GfxRenderer::grayscaleCapabilities(HalDisplay::GrayscaleMode mode) const {

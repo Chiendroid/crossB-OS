@@ -326,7 +326,7 @@ inline int getStringWidth(const char* str) {
   return w;
 }
 
-inline void drawClock(const GfxRenderer& renderer, int centerX, int baselineY, const char* str) {
+inline void drawClock(const GfxRenderer& renderer, int centerX, int baselineY, const char* str, bool black = true) {
   const int totalW = getStringWidth(str);
   int curX = centerX - totalW / 2;
   for (const char* p = str; *p; ++p) {
@@ -338,7 +338,7 @@ inline void drawClock(const GfxRenderer& renderer, int centerX, int baselineY, c
       const int py = baselineY - g->top + r;
       for (int c = 0; c < g->w; ++c, ++bitIdx) {
         if ((g->data[bitIdx >> 3] >> (7 - (bitIdx & 7))) & 1) {
-          renderer.drawPixel(glyphX + c, py, true);
+          renderer.drawPixel(glyphX + c, py, black);
         }
       }
     }

@@ -14,6 +14,7 @@ class SleepActivity final : public Activity {
   void onExit() override;
 
   void renderClockSleepScreen(bool fast = true) const { renderDefaultSleepScreen(fast); }
+  void renderClockSleepScreenPartial() const;
 
  private:
   void renderDefaultSleepScreen() const { renderDefaultSleepScreen(false); }

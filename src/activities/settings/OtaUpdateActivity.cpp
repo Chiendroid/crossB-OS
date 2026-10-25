@@ -18,11 +18,11 @@ namespace {
 void drawSimpleButton(GfxRenderer& renderer, const Rect& r, const char* label, bool bold = false) {
   renderer.drawRect(r.x, r.y, r.width, r.height);
   const auto fontId = UI_10_FONT_ID;
-  const int textW = renderer.getTextWidth(fontId, label);
+  const int textW = renderer.getTextWidth(fontId, label, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   const int textH = renderer.getLineHeight(fontId);
   const int textX = r.x + (r.width - textW) / 2;
   const int textY = r.y + (r.height - textH) / 2;
-  renderer.drawText(fontId, textX, textY, label, false, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+  renderer.drawText(fontId, textX, textY, label, true, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 }
 }  // namespace
 
@@ -92,7 +92,7 @@ void OtaUpdateActivity::startCheckForUpdate() {
     LOG_DBG("OTA", "Update check failed: %d", res);
     {
       RenderLock lock(*this);
-      failedDetail = (res == OtaUpdater::HTTP_ERROR) ? "Loi ket noi mang den may chu" : "Loi phan tich du lieu cap nhat";
+      failedDetail = (res == OtaUpdater::HTTP_ERROR) ? "Lỗi kết nối mạng đến máy chủ" : "Lỗi phân tích dữ liệu cập nhật";
       state = FAILED;
     }
     requestUpdate();
@@ -167,23 +167,23 @@ void OtaUpdateActivity::render(RenderLock&&) {
     int y = metrics.topPadding + metrics.headerHeight + 6;
 
     char verBuf[96];
-    snprintf(verBuf, sizeof(verBuf), "Phien ban hien tai: %s", CROSSPOINT_VERSION);
+    snprintf(verBuf, sizeof(verBuf), "Phiên bản hiện tại: %s", CROSSPOINT_VERSION);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, verBuf);
     y += height + 4;
 
     const char* chanName =
-        (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) ? "Phat trien (Dev)" : "On dinh (Release)";
+        (SETTINGS.otaChannel == CrossPointSettings::OTA_CHANNEL_DEV) ? "Phát triển (Dev)" : "Ổn định (Release)";
     char chanBuf[96];
-    snprintf(chanBuf, sizeof(chanBuf), "Kenh cap nhat: %s", chanName);
+    snprintf(chanBuf, sizeof(chanBuf), "Kênh cập nhật: %s", chanName);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, chanBuf);
     y += height + 4;
 
     if (updater.isUpdateNewer()) {
       char newVerBuf[96];
-      snprintf(newVerBuf, sizeof(newVerBuf), "Co ban cap nhat moi: %s", updater.getLatestVersion().c_str());
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, newVerBuf, false, EpdFontFamily::BOLD);
+      snprintf(newVerBuf, sizeof(newVerBuf), "Có bản cập nhật mới: %s", updater.getLatestVersion().c_str());
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, newVerBuf, true, EpdFontFamily::BOLD);
     } else {
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, "Ban dang o phien ban moi nhat.", false,
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, "Bạn đang ở phiên bản mới nhất.", true,
                         EpdFontFamily::BOLD);
     }
     y += height + 6;
@@ -192,11 +192,11 @@ void OtaUpdateActivity::render(RenderLock&&) {
     y += 8;
 
     if (updater.isUpdateNewer()) {
-      std::string title = "Nhat ky thay doi (" + updater.getLatestVersion() + "):";
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), false, EpdFontFamily::BOLD);
+      std::string title = "Nhật ký thay đổi (" + updater.getLatestVersion() + "):";
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), true, EpdFontFamily::BOLD);
     } else {
-      std::string title = "Nhat ky thay doi (" + std::string(CROSSPOINT_VERSION) + "):";
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), false, EpdFontFamily::BOLD);
+      std::string title = "Nhật ký thay đổi (" + std::string(CROSSPOINT_VERSION) + "):";
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str(), true, EpdFontFamily::BOLD);
     }
     y += height + 6;
 
@@ -233,30 +233,30 @@ void OtaUpdateActivity::render(RenderLock&&) {
     const int contentW = pageWidth - metrics.contentSidePadding * 2;
     if (updater.isUpdateNewer()) {
       updateButtonRect = Rect{metrics.contentSidePadding, bottomAreaY, contentW, 40};
-      drawSimpleButton(renderer, updateButtonRect, "CAP NHAT NGAY", true);
+      drawSimpleButton(renderer, updateButtonRect, "CẬP NHẬT NGAY", true);
 
       const int halfW = (contentW - btnGap) / 2;
       changeChannelButtonRect = Rect{metrics.contentSidePadding, bottomAreaY + 46, halfW, 36};
-      drawSimpleButton(renderer, changeChannelButtonRect, "Doi kenh");
+      drawSimpleButton(renderer, changeChannelButtonRect, "Đổi kênh");
 
       retryButtonRect = Rect{metrics.contentSidePadding + halfW + btnGap, bottomAreaY + 46, halfW, 36};
-      drawSimpleButton(renderer, retryButtonRect, "Kiem tra lai");
+      drawSimpleButton(renderer, retryButtonRect, "Kiểm tra lại");
       backButtonRect = Rect{0, 0, 0, 0};
     } else {
       updateButtonRect = Rect{0, 0, 0, 0};
       const int halfW = (contentW - btnGap) / 2;
       changeChannelButtonRect = Rect{metrics.contentSidePadding, bottomAreaY, halfW, 38};
-      drawSimpleButton(renderer, changeChannelButtonRect, "Doi kenh");
+      drawSimpleButton(renderer, changeChannelButtonRect, "Đổi kênh");
 
       retryButtonRect = Rect{metrics.contentSidePadding + halfW + btnGap, bottomAreaY, halfW, 38};
-      drawSimpleButton(renderer, retryButtonRect, "Kiem tra lai");
+      drawSimpleButton(renderer, retryButtonRect, "Kiểm tra lại");
 
       backButtonRect = Rect{metrics.contentSidePadding, bottomAreaY + 44, contentW, 34};
-      drawSimpleButton(renderer, backButtonRect, "Quay lai");
+      drawSimpleButton(renderer, backButtonRect, "Quay lại");
     }
 
-    const auto labels = mappedInput.mapLabels("Quay lai", updater.isUpdateNewer() ? "Cap nhat" : "Doi kenh",
-                                              "Cuon len", "Cuon xuong");
+    const auto labels = mappedInput.mapLabels("Quay lại", updater.isUpdateNewer() ? "Cập nhật" : "Đổi kênh",
+                                              "Cuộn lên", "Cuộn xuống");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
     if (confirmPopup.processRender(renderer, mappedInput)) return;
@@ -353,8 +353,8 @@ void OtaUpdateActivity::loop() {
           x >= updateButtonRect.x && x <= updateButtonRect.x + updateButtonRect.width &&
           y >= updateButtonRect.y && y <= updateButtonRect.y + updateButtonRect.height) {
         const char* options[] = {tr(STR_CANCEL), tr(STR_UPDATE)};
-        confirmPopup.showMessage("Xac nhan cap nhat",
-                                 ("Tai va cai dat phien ban " + updater.getLatestVersion() + " ngay bay gio?").c_str(),
+        confirmPopup.showMessage("Xác nhận cập nhật",
+                                 ("Tải và cài đặt phiên bản " + updater.getLatestVersion() + " ngay bây giờ?").c_str(),
                                  options, 2, 1, [this](const int idx) {
                                    if (idx == 1) {
                                      runUpdateInstall();
@@ -414,8 +414,8 @@ void OtaUpdateActivity::loop() {
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       if (updater.isUpdateNewer()) {
         const char* options[] = {tr(STR_CANCEL), tr(STR_UPDATE)};
-        confirmPopup.showMessage("Xac nhan cap nhat",
-                                 ("Tai va cai dat phien ban " + updater.getLatestVersion() + " ngay bay gio?").c_str(),
+        confirmPopup.showMessage("Xác nhận cập nhật",
+                                 ("Tải và cài đặt phiên bản " + updater.getLatestVersion() + " ngay bây giờ?").c_str(),
                                  options, 2, 1, [this](const int idx) {
                                    if (idx == 1) {
                                      runUpdateInstall();
