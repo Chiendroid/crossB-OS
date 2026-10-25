@@ -36,6 +36,15 @@ void HalPowerManager::begin() {
 }
 
 void HalPowerManager::setPowerSaving(bool enabled) {
+#if BOARD_HAS_PSRAM || defined(FREEINK_DEVICE_X4PRO)
+  // On ESP32-S3 with Octal PSRAM (OPI) and shared I2C bus (GT911 touch, CW2017 gauge, RTC),
+  // runtime frequency changes via setCpuFrequencyMhz disrupt MSPI bus timing and desync
+  // I2C communication, leading to fatal system lockups and freeze.
+  // Power saving while awake is handled automatically by FreeRTOS idle task waiti instructions
+  // during delay(10). Deep sleep is handled separately by startDeepSleep().
+  (void)enabled;
+  return;
+#else
   if (normalFreq <= 0) {
     return;  // invalid state
   }
@@ -72,6 +81,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 
   // Otherwise, no change needed
   xSemaphoreGive(modeMutex);
+#endif
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {

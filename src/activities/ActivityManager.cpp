@@ -550,14 +550,20 @@ void ActivityManager::requestUpdateAndWait() {
   }
   taskEXIT_CRITICAL(&activityManagerSpinlock);
 
-  // Render task cannot call requestUpdateAndWait() or it will cause a deadlock
-  assert(!isRenderTask && "Render task cannot call requestUpdateAndWait()");
+  if (isRenderTask) {
+    LOG_ERR("ACT", "requestUpdateAndWait() called from render task; rejecting sync update");
+    return;
+  }
 
-  // There should never be the case where 2 tasks are waiting for a render at the same time
-  assert(!alreadyWaiting && "Already waiting for a render to complete");
+  if (alreadyWaiting) {
+    LOG_ERR("ACT", "requestUpdateAndWait() called while another task is waiting; rejecting sync update");
+    return;
+  }
 
-  // Cannot call while holding RenderLock or it will cause a deadlock
-  assert(!holdingRenderLock && "Cannot call requestUpdateAndWait() while holding RenderLock");
+  if (holdingRenderLock) {
+    LOG_ERR("ACT", "requestUpdateAndWait() called while holding RenderLock; rejecting sync update");
+    return;
+  }
 
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
