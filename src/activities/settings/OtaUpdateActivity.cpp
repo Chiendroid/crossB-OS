@@ -209,6 +209,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
     const int lineSpacing = height + 2;
     const int maxVisibleLines = std::max(1, (boxHeight - 12) / lineSpacing);
+    visibleLinesCount = maxVisibleLines;
     if (scrollLine > static_cast<int>(changelogLines.size()) - maxVisibleLines) {
       scrollLine = std::max(0, static_cast<int>(changelogLines.size()) - maxVisibleLines);
     }
@@ -392,18 +393,41 @@ void OtaUpdateActivity::loop() {
         return;
       }
 
-      // Scroll changelog box
+      // Scroll changelog box via tap
       if (changelogBoxRect.width > 0 &&
           x >= changelogBoxRect.x && x <= changelogBoxRect.x + changelogBoxRect.width &&
           y >= changelogBoxRect.y && y <= changelogBoxRect.y + changelogBoxRect.height) {
+        const int scrollStep = std::max(1, visibleLinesCount - 1);
+        const int maxScroll = std::max(0, static_cast<int>(changelogLines.size()) - visibleLinesCount);
         if (y < changelogBoxRect.y + changelogBoxRect.height / 2) {
-          scrollLine = std::max(0, scrollLine - 3);
+          scrollLine = std::max(0, scrollLine - scrollStep);
         } else {
-          scrollLine += 3;
+          scrollLine = std::min(maxScroll, scrollLine + scrollStep);
         }
         requestUpdate();
         return;
       }
+    }
+
+    // Scroll changelog via swipe gesture
+    int swipeStartX = -1, swipeStartY = -1;
+    const auto swipe = mappedInput.wasSwipe(&swipeStartX, &swipeStartY);
+    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left) {
+      const int scrollStep = std::max(1, visibleLinesCount - 1);
+      const int maxScroll = std::max(0, static_cast<int>(changelogLines.size()) - visibleLinesCount);
+      if (scrollLine < maxScroll) {
+        scrollLine = std::min(maxScroll, scrollLine + scrollStep);
+        requestUpdate();
+      }
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Down || swipe == MappedInputManager::SwipeDir::Right) {
+      const int scrollStep = std::max(1, visibleLinesCount - 1);
+      if (scrollLine > 0) {
+        scrollLine = std::max(0, scrollLine - scrollStep);
+        requestUpdate();
+      }
+      return;
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -434,8 +458,9 @@ void OtaUpdateActivity::loop() {
 
     if (mappedInput.wasPressed(MappedInputManager::Button::NavPrevious) ||
         mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      const int scrollStep = std::max(1, visibleLinesCount - 1);
       if (scrollLine > 0) {
-        scrollLine = std::max(0, scrollLine - 3);
+        scrollLine = std::max(0, scrollLine - scrollStep);
         requestUpdate();
       }
       return;
@@ -443,8 +468,12 @@ void OtaUpdateActivity::loop() {
 
     if (mappedInput.wasPressed(MappedInputManager::Button::NavNext) ||
         mappedInput.wasPressed(MappedInputManager::Button::Down)) {
-      scrollLine += 3;
-      requestUpdate();
+      const int scrollStep = std::max(1, visibleLinesCount - 1);
+      const int maxScroll = std::max(0, static_cast<int>(changelogLines.size()) - visibleLinesCount);
+      if (scrollLine < maxScroll) {
+        scrollLine = std::min(maxScroll, scrollLine + scrollStep);
+        requestUpdate();
+      }
       return;
     }
     return;

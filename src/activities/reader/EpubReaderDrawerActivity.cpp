@@ -840,7 +840,7 @@ int16_t EpubReaderDrawerActivity::drawerHeight() const {
 fui::Rect EpubReaderDrawerActivity::previewBounds() const {
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW) return samplePreviewBounds;
   const int16_t height = static_cast<int16_t>(renderer.getScreenHeight() - drawerHeight());
-  return fui::Rect{0, 0, renderer.getScreenWidth(), height};
+  return fui::Rect{0, 0, static_cast<int16_t>(renderer.getScreenWidth()), height};
 }
 
 bool EpubReaderDrawerActivity::showsSamplePreview() const {
@@ -2606,8 +2606,8 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
   const bool fontLoaded =
       previewSettings.sdFontFamilyName[0] == '\0' ||
       sdFontSystem.resolveFontId(previewSettings.sdFontFamilyName.data(), previewSettings.readerFontPointSize) != 0;
-  applySettings(liveSettings);
   if (!fontLoaded && ownedPreviewModel) {
+    applySettings(liveSettings);
     LOG_ERR("ERDM", "Could not load selected SD font for button preview");
     restoreReaderDraftFont(draft, lastGoodPreviewSettings);
     state.pendingFontIndex = -1;
@@ -2617,13 +2617,18 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
     return false;
   }
   if (auto* fontCacheManager = renderer.getFontCacheManager()) {
+    fontCacheManager->clearCache();
     prewarmScope.emplace(*fontCacheManager);
     renderPreviewContents(previewSettings,
                           previewFontId);  // Scan the page text before loading the selected font's glyphs.
     prewarmScope->endScanAndPrewarm();
-    if (releasePreviewIfBelowReserve()) return false;
+    if (releasePreviewIfBelowReserve()) {
+      applySettings(liveSettings);
+      return false;
+    }
   }
   renderPreviewContents(previewSettings, previewFontId);
+  applySettings(liveSettings);
   if (releasePreviewIfBelowReserve()) return false;
   lastGoodPreviewSettings = draft;
   previewUnavailable = false;

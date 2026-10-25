@@ -63,6 +63,24 @@ HalDisplay::GrayscaleMode sleepGrayscaleMode(const GfxRenderer& renderer) {
              : HalDisplay::GrayscaleMode::Absolute;
 }
 
+void drawDashedRoundedRect(const GfxRenderer& renderer, int x, int y, int w, int h, int r) {
+  // Cạnh trên & cạnh dưới nét đứt
+  for (int px = x + r; px < x + w - r; px += 3) {
+    renderer.drawPixel(px, y, true);
+    renderer.drawPixel(px, y + h - 1, true);
+  }
+  // Cạnh trái & cạnh phải nét đứt
+  for (int py = y + r; py < y + h - r; py += 3) {
+    renderer.drawPixel(x, py, true);
+    renderer.drawPixel(x + w - 1, py, true);
+  }
+  // 4 góc bo nhẹ
+  renderer.drawPixel(x + 1, y + 1, true);
+  renderer.drawPixel(x + w - 2, y + 1, true);
+  renderer.drawPixel(x + 1, y + h - 2, true);
+  renderer.drawPixel(x + w - 2, y + h - 2, true);
+}
+
 // Kept separate from /sleep.bmp and /.sleep so alpha-overlay art does not mix with full-screen wallpapers.
 constexpr char TRANSPARENT_SLEEP_ROOT_BMP[] = "/sleep-overlay.bmp";
 constexpr char TRANSPARENT_SLEEP_ROOT_PNG[] = "/sleep-overlay.png";
@@ -583,6 +601,9 @@ void SleepActivity::onEnter() {
   }
 
   switch (SETTINGS.sleepScreen) {
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::DARK):
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT):
+      return renderClockSleepScreen(false);
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
@@ -642,31 +663,30 @@ void SleepActivity::renderCustomSleepScreen() const {
     }
   }
 
-  renderDefaultSleepScreen();
+  // Khi không tìm thấy file ảnh tùy chỉnh nào trên thẻ nhớ
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen(0xFF);
+
+  constexpr int frameMargin = 24;
+  drawDashedRoundedRect(renderer, frameMargin, frameMargin, pageWidth - frameMargin * 2, pageHeight - frameMargin * 2, 14);
+
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[48];
+  snprintf(headerBuf, sizeof(headerBuf), "HÌNH NỀN TÙY CHỈNH  ·  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 64, headerBuf, true);
+
+  renderer.drawCenteredText(UI_12_FONT_ID, 270, "Chưa có ảnh trong thẻ nhớ", true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, 320, "Đặt file /sleep.bmp ở thư mục gốc", true);
+  renderer.drawCenteredText(UI_10_FONT_ID, 350, "hoặc chép các file ảnh vào thư mục /sleep", true);
+  renderer.drawCenteredText(UI_10_FONT_ID, 390, "(Hỗ trợ BMP 1/2/4/8/24-bit và PNG)", true);
+
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - 64, "Bấm nút nguồn để tiếp tục", true);
+  renderer.displayBuffer(kSleepClean);
 }
 
 #include "ClockDigits.h"
-
-namespace {
-void drawDashedRoundedRect(const GfxRenderer& renderer, int x, int y, int w, int h, int r) {
-  // Cạnh trên & cạnh dưới nét đứt
-  for (int px = x + r; px < x + w - r; px += 3) {
-    renderer.drawPixel(px, y, true);
-    renderer.drawPixel(px, y + h - 1, true);
-  }
-  // Cạnh trái & cạnh phải nét đứt
-  for (int py = y + r; py < y + h - r; py += 3) {
-    renderer.drawPixel(x, py, true);
-    renderer.drawPixel(x + w - 1, py, true);
-  }
-  // 4 góc bo nhẹ
-  if (r > 0) {
-    renderer.drawPixel(x + 1, y + 1, true);
-    renderer.drawPixel(x + w - 2, y + 1, true);
-    renderer.drawPixel(x + 1, y + h - 2, true);
-    renderer.drawPixel(x + w - 2, y + h - 2, true);
-  }
-}
 
 namespace {
 bool isNonEmptyBmp(const std::string& path) {
@@ -718,9 +738,8 @@ std::string resolveRecentBookCoverPath(const RecentBook& book) {
   }
   return "";
 }
-}  // namespace
 
-void SleepActivity::renderDefaultSleepScreen(bool fast) const {
+void SleepActivity::renderClockSleepScreen(bool fast) const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
@@ -966,6 +985,34 @@ void SleepActivity::renderDefaultSleepScreen(bool fast) const {
   renderer.displayBuffer(fast ? HalDisplay::FAST_REFRESH : kSleepClean);
 }
 
+void SleepActivity::renderDefaultSleepScreen(bool fast) const {
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  renderer.clearScreen(0xFF);
+
+  constexpr int frameMargin = 28;
+  renderer.drawRoundedRect(frameMargin, frameMargin, pageWidth - frameMargin * 2, pageHeight - frameMargin * 2, 2, 16, true);
+
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[48];
+  snprintf(headerBuf, sizeof(headerBuf), "CROSSBASIC OS  ·  %u%%", clampedPin);
+  renderer.drawCenteredText(UI_10_FONT_ID, 64, headerBuf, true);
+
+  constexpr int logoW = 120;
+  constexpr int logoH = 120;
+  const int logoX = (pageWidth - logoW) / 2;
+  constexpr int logoY = 240;
+  renderer.drawImage(Logo120, logoX, logoY, logoW, logoH);
+
+  renderer.drawCenteredText(UI_12_FONT_ID, 400, "CROSSBASIC OS", true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, 440, "Đang ở chế độ ngủ", true);
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - 64, "Bấm nút nguồn để tiếp tục", true);
+
+  renderer.displayBuffer(fast ? HalDisplay::FAST_REFRESH : kSleepClean);
+}
+
 void SleepActivity::renderClockSleepScreenPartial() const {
   const auto pageWidth = renderer.getScreenWidth();
   constexpr int headerH = 224;
@@ -1178,20 +1225,22 @@ void SleepActivity::renderTransparentCustomSleepScreen() const {
   if (!selectedPath.empty() && renderSleepOverlayPath(selectedPath)) return;
 
   LOG_ERR("SLP", "No valid transparent sleep overlay found");
-  renderDefaultSleepScreen();
+  const auto pageWidth = renderer.getScreenWidth();
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+  char headerBuf[48];
+  snprintf(headerBuf, sizeof(headerBuf), "ĐÃ KHÓA  ·  %u%%", clampedPin);
+  constexpr int badgeW = 150;
+  constexpr int badgeH = 30;
+  const int badgeX = (pageWidth - badgeW) / 2;
+  constexpr int badgeY = 24;
+  renderer.fillRoundedRect(badgeX, badgeY, badgeW, badgeH, 8, Color::White);
+  renderer.drawRoundedRect(badgeX, badgeY, badgeW, badgeH, 1, 8, true);
+  renderer.drawCenteredText(UI_10_FONT_ID, badgeY + (badgeH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, headerBuf, true);
+  renderer.displayBuffer(kSleepClean);
 }
 
 void SleepActivity::renderCoverSleepScreen() const {
-  void (SleepActivity::*renderNoCoverSleepScreen)() const;
-  switch (SETTINGS.sleepScreen) {
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
-      renderNoCoverSleepScreen = &SleepActivity::renderCustomSleepScreen;
-      break;
-    default:
-      renderNoCoverSleepScreen = &SleepActivity::renderDefaultSleepScreen;
-      break;
-  }
-
   // 1. Xác định đường dẫn cuốn sách cần hiện bìa
   std::string targetBookPath = APP_STATE.openEpubPath;
   const auto& books = RECENT_BOOKS.getBooks();
@@ -1215,7 +1264,33 @@ void SleepActivity::renderCoverSleepScreen() const {
 
   // Nếu trong máy hoàn toàn chưa từng mở hoặc có sách nào
   if (targetBookPath.empty()) {
-    return (this->*renderNoCoverSleepScreen)();
+    if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM) {
+      return renderCustomSleepScreen();
+    }
+    const auto pageWidth = renderer.getScreenWidth();
+    const auto pageHeight = renderer.getScreenHeight();
+    renderer.clearScreen(0xFF);
+
+    constexpr int frameMargin = 28;
+    renderer.drawRoundedRect(frameMargin, frameMargin, pageWidth - frameMargin * 2, pageHeight - frameMargin * 2, 2, 16, true);
+
+    const uint16_t percentage = powerManager.getBatteryPercentage();
+    const unsigned clampedPin = percentage > 100 ? 100 : percentage;
+    char headerBuf[48];
+    snprintf(headerBuf, sizeof(headerBuf), "ẢNH BÌA SÁCH  ·  %u%%", clampedPin);
+    renderer.drawCenteredText(UI_10_FONT_ID, 64, headerBuf, true);
+
+    constexpr int logoW = 120;
+    constexpr int logoH = 120;
+    const int logoX = (pageWidth - logoW) / 2;
+    constexpr int logoY = 240;
+    renderer.drawImage(Logo120, logoX, logoY, logoW, logoH);
+
+    renderer.drawCenteredText(UI_12_FONT_ID, 400, "Chưa có sách nào đang đọc", true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, 440, "Mở thư viện để chọn sách và bắt đầu đọc", true);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - 64, "Bấm nút nguồn để tiếp tục", true);
+    renderer.displayBuffer(kSleepClean);
+    return;
   }
 
   // SSD absolute images use the new thresholds; other panels retain legacy tuning.

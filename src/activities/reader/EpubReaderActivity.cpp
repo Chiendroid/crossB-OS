@@ -374,12 +374,7 @@ void EpubReaderActivity::openReaderMenu() {
       }
       toggleAutoPageTurn(menu->pageTurnOption);
       if (menu->settingsChanged) {
-        RenderLock lock;
-        if (auto* fcm = renderer.getFontCacheManager()) {
-          fcm->releaseSdFontCaches();
-        }
-        sdFontSystem.ensureLoaded(renderer);
-        section.reset();
+        applyReaderTextSettings();
         requestUpdate();
       }
       if (!result.isCancelled) {

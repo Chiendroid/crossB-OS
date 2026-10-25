@@ -13,12 +13,11 @@ class SleepActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
 
-  void renderClockSleepScreen(bool fast = true) const { renderDefaultSleepScreen(fast); }
+  void renderClockSleepScreen(bool fast = false) const;
   void renderClockSleepScreenPartial() const;
 
  private:
-  void renderDefaultSleepScreen() const { renderDefaultSleepScreen(false); }
-  void renderDefaultSleepScreen(bool fast) const;
+  void renderDefaultSleepScreen(bool fast = false) const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap, bool preserveBackground = false) const;

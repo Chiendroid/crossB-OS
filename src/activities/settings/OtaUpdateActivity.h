@@ -32,6 +32,7 @@ class OtaUpdateActivity : public Activity {
 
   std::vector<std::string> changelogLines;
   int scrollLine = 0;
+  int visibleLinesCount = 5;
 
   Rect updateButtonRect{0, 0, 0, 0};
   Rect changeChannelButtonRect{0, 0, 0, 0};
